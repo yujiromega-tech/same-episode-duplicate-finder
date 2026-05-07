@@ -2,7 +2,7 @@
 
 Same Episode Duplicate Finder is a Windows desktop tool for reviewing duplicate anime or episodic media files. It scans a folder, groups files that look like the same series episode, recommends likely keep/delete choices, and helps move or recycle files after manual review.
 
-Current version: `0.0.1`.
+Current version: `0.0.2`.
 
 The app is designed for large, messy libraries where duplicate episodes may differ by release group, size, path, naming style, version tag, or AniDB metadata.
 
@@ -130,6 +130,14 @@ If UDP lookup times out, wait before retrying and confirm that UDP port 9000 is 
 No open-source license has been selected yet. Add a license before publishing publicly if others should be allowed to use, modify, or redistribute the code.
 
 ## Changelog
+
+### 0.0.2
+
+- Added focused unit tests for parsing, grouping, scoring, action reports, target paths, and series-title search.
+- Added dry-run CSV reports for delete and move confirmations.
+- Restricted search to series name only.
+- Split core models and recommendation scoring into separate source files.
+- Fixed build scripts so compiler and test failures stop the build.
 
 ### 0.0.1
 
