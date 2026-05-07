@@ -1808,7 +1808,7 @@ namespace SameEpisodeDuplicateFinder
             searchBox.BorderStyle = BorderStyle.FixedSingle;
             searchBox.Margin = new Padding(0, 5, 8, 5);
             searchBox.TextChanged += SearchBox_TextChanged;
-            toolTip.SetToolTip(searchBox, "Filter visible rows by series, file, folder, AniDB title, status, or reason.");
+            toolTip.SetToolTip(searchBox, "Filter visible rows by series name.");
 
             cancelButton = new Button();
             cancelButton.Text = "Cancel";
@@ -2921,23 +2921,23 @@ namespace SameEpisodeDuplicateFinder
                 return true;
             }
 
-            return ContainsSearch(row.Title) ||
-                   ContainsSearch(row.FileName) ||
-                   ContainsSearch(row.SimplifiedFileName) ||
-                   ContainsSearch(row.FileLocation) ||
-                   ContainsSearch(row.SubtitleGroup) ||
-                   ContainsSearch(row.Version) ||
-                   ContainsSearch(row.AniDbDisplay) ||
-                   ContainsSearch(row.Recommendation) ||
-                   ContainsSearch(row.ReviewStatus) ||
-                   ContainsSearch(row.ArtworkStatus) ||
-                   ContainsSearch(row.RecommendationReason);
+            return SeriesTitleMatchesSearch(row, activeSearchText);
         }
 
-        private bool ContainsSearch(string value)
+        internal static bool SeriesTitleMatchesSearch(EpisodeFile row, string searchText)
+        {
+            if (row == null || string.IsNullOrWhiteSpace(searchText))
+            {
+                return true;
+            }
+
+            return ContainsSearch(row.Title, searchText.Trim());
+        }
+
+        private static bool ContainsSearch(string value, string searchText)
         {
             return !string.IsNullOrWhiteSpace(value) &&
-                   value.IndexOf(activeSearchText, StringComparison.OrdinalIgnoreCase) >= 0;
+                   value.IndexOf(searchText, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void ReviewTabs_SelectedIndexChanged(object sender, EventArgs e)

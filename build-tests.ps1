@@ -43,4 +43,11 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     $sources `
     $tests
 
+if ($LASTEXITCODE -ne 0) {
+    throw "C# compiler failed with exit code $LASTEXITCODE"
+}
+
 & $output
+if ($LASTEXITCODE -ne 0) {
+    throw "Unit tests failed with exit code $LASTEXITCODE"
+}

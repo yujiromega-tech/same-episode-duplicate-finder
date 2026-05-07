@@ -17,6 +17,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("scoring prefers resolution, version, then size", ScoringPrefersResolutionVersionThenSize);
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
+            Run("search matches only series title", SearchMatchesOnlySeriesTitle);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -140,6 +141,19 @@ namespace SameEpisodeDuplicateFinder.Tests
                 AssertContains(csv, "Action,Status,Reason,OldPath,NewPath", "csv header");
                 AssertContains(csv, "\"Quoted \"\"reason\"\", with comma\"", "csv escaped reason");
             }
+        }
+
+        private static void SearchMatchesOnlySeriesTitle()
+        {
+            var row = NewEpisode("frieren|E001", "Frieren Beyond Journey's End", "[SubsPlease] Different File Name - 01.mkv", 100);
+            row.FileLocation = "C:\\Media\\Other Folder";
+            row.SubtitleGroup = "SubsPlease";
+            row.RecommendationReason = "kept file has higher resolution";
+
+            AssertTrue(MainForm.SeriesTitleMatchesSearch(row, "frieren"), "series title should match");
+            AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "SubsPlease"), "subtitle group should not match");
+            AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "Different File Name"), "file name should not match");
+            AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "higher resolution"), "recommendation reason should not match");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

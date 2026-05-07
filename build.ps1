@@ -48,4 +48,8 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     $assemblyInfo `
     $sources
 
+if ($LASTEXITCODE -ne 0) {
+    throw "C# compiler failed with exit code $LASTEXITCODE"
+}
+
 Write-Host "Built $output"
