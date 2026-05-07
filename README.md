@@ -77,6 +77,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build-tests.ps1
 
 The tests cover filename parsing, duplicate-group counting, recommendation scoring helpers, and safe target path generation.
 
+## Python CLI Prototype
+
+A standard-library-only Python prototype lives at `python/sedf_cli.py`. It mirrors the core scan, parse, duplicate grouping, scoring, and CSV output flow so the core logic can be explored outside WinForms.
+
+See `docs/PYTHON_CLI.md` for usage and current gaps.
+
 ## Usage
 
 1. Launch `SameEpisodeDuplicateFinder.exe`.
@@ -115,6 +121,7 @@ If UDP lookup times out, wait before retrying and confirm that UDP port 9000 is 
 
 - The app is Windows-only.
 - Much of the current codebase still lives in one large WinForms source file, though model classes and focused tests have started the split.
+- The Python CLI is a prototype and does not yet include the GUI, Recycle Bin delete workflow, move workflow, AniDB, FileBot, or scan cache.
 - The automated test suite is focused on core parsing, grouping, scoring, action reports, and target path helpers; UI workflows still need broader coverage.
 - Duplicate recommendations are heuristic and should be manually reviewed.
 - External services and tools, including AniDB and FileBot, may fail or be rate-limited independently of this app.

@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $sources = @(
+    (Join-Path $root "src\EpisodeParser.cs"),
     (Join-Path $root "src\Models.cs"),
     (Join-Path $root "src\RecommendationScorer.cs"),
     (Join-Path $root "src\SameEpisodeDuplicateFinder.cs")

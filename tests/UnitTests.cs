@@ -30,7 +30,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             var file = CreateScannedFile(root, "Library", "[SubsPlease] Frieren - Beyond Journey's End - 01 [1080p][v2].mkv", 734003200);
 
             EpisodeFile parsed;
-            AssertTrue(MainForm.TryParseFile(file, root, out parsed), "file should parse");
+            AssertTrue(EpisodeParser.TryParseFile(file, root, out parsed), "file should parse");
             AssertEqual("SubsPlease", parsed.SubtitleGroup, "subtitle group");
             AssertEqual("Frieren Beyond Journey's End", parsed.Title, "title");
             AssertEqual("E001", parsed.Episode, "episode");
@@ -45,7 +45,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             var file = CreateScannedFile(root, "Shows\\Delicious in Dungeon\\Season 1", "Delicious.in.Dungeon.S01E12.720p.mkv", 524288000);
 
             EpisodeFile parsed;
-            AssertTrue(MainForm.TryParseFile(file, root, out parsed), "file should parse");
+            AssertTrue(EpisodeParser.TryParseFile(file, root, out parsed), "file should parse");
             AssertEqual("Delicious in Dungeon", parsed.Title, "title");
             AssertEqual("S01E12", parsed.Episode, "episode");
             AssertEqual("delicious in dungeon|S01E12", parsed.Key, "group key");
@@ -62,7 +62,7 @@ namespace SameEpisodeDuplicateFinder.Tests
                 NewEpisode("other|E001", "Other", "Other - 01 [720p].mkv", 90)
             };
 
-            AssertEqual(2, MainForm.CountDuplicateEpisodeGroups(files), "duplicate group count");
+            AssertEqual(2, EpisodeParser.CountDuplicateEpisodeGroups(files), "duplicate group count");
         }
 
         private static void ScoringPrefersResolutionVersionThenSize()
