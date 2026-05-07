@@ -16,6 +16,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("grouping counts only repeated episode keys", GroupingCountsRepeatedEpisodeKeys);
             Run("scoring prefers resolution, version, then size", ScoringPrefersResolutionVersionThenSize);
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
+            Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -115,6 +116,29 @@ namespace SameEpisodeDuplicateFinder.Tests
                 {
                     Directory.Delete(root, true);
                 }
+            }
+        }
+
+        private static void ActionReportWriterEscapesCsvFields()
+        {
+            var rows = new List<ActionPreviewRow>
+            {
+                new ActionPreviewRow
+                {
+                    Action = "Delete marked",
+                    Confidence = "High",
+                    Reason = "Quoted \"reason\", with comma",
+                    CurrentPath = "C:\\Media\\Old.mkv",
+                    TargetPath = "Recycle Bin"
+                }
+            };
+
+            using (var writer = new StringWriter())
+            {
+                MainForm.WriteActionReport(writer, rows);
+                var csv = writer.ToString();
+                AssertContains(csv, "Action,Status,Reason,OldPath,NewPath", "csv header");
+                AssertContains(csv, "\"Quoted \"\"reason\"\", with comma\"", "csv escaped reason");
             }
         }
 

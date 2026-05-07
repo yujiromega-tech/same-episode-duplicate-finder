@@ -11,6 +11,8 @@ dist/
 # Scan reports and caches
 *.csv
 SameEpisodeDuplicateFinder.lastscan.*
+SameEpisodeDuplicateFinder.last-*-dry-run.csv
+SameEpisodeDuplicateFinder.last-move-report.csv
 SameEpisodeDuplicateFinder.fileformats
 SameEpisodeDuplicateFinder.columns
 SameEpisodeDuplicateFinder.beta-seen

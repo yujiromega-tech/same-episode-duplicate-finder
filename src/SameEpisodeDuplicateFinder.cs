@@ -4059,6 +4059,27 @@ namespace SameEpisodeDuplicateFinder
 
                 footerPanel.Controls.Add(executeButton);
 
+                var saveButton = new Button();
+                saveButton.Text = "Save CSV...";
+                saveButton.Width = 110;
+                saveButton.Height = 34;
+                StyleButton(saveButton, false);
+                saveButton.Click += delegate
+                {
+                    using (var saveDialog = new SaveFileDialog())
+                    {
+                        saveDialog.Title = "Save dry-run report";
+                        saveDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*";
+                        saveDialog.FileName = "same-episode-dry-run.csv";
+                        if (saveDialog.ShowDialog(dialog) == DialogResult.OK)
+                        {
+                            SaveActionReport(saveDialog.FileName, previewRows);
+                            MessageBox.Show(dialog, "Dry-run report saved.", "Dry-run report", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        }
+                    }
+                };
+                footerPanel.Controls.Add(saveButton);
+
                 if (requireExecution)
                 {
                     var cancelButton = new Button();
@@ -4136,20 +4157,31 @@ namespace SameEpisodeDuplicateFinder
                 folderNames[title] = safeEntered;
             }
 
-            var destinationText = seriesTitles.Count == 1
-                ? Path.Combine(targetRoot, folderNames[seriesTitles[0]])
-                : Path.Combine(targetRoot, "<series name>");
-            var message = string.Format(
-                "Move {0:N0} file(s) from {1:N0} selected series into series folders?\r\n\r\nDestination: {2}",
-                selected.Count,
-                seriesTitles.Count,
-                destinationText);
-            if (MessageBox.Show(this, message, "Confirm move", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            var previewRows = BuildSeriesMovePreviewRows(selected, targetRoot, folderNames);
+            if (!ConfirmBatchPreviewDialog(previewRows, "Move Files"))
             {
+                LogActivity("Move batch canceled.");
                 return;
             }
 
+            SaveActionReport(GetMoveDryRunReportPath(), previewRows);
             RunMoveToSeriesFolders(selected, targetRoot, folderNames);
+        }
+
+        private List<ActionPreviewRow> BuildSeriesMovePreviewRows(List<EpisodeFile> selected, string targetRoot, Dictionary<string, string> folderNames)
+        {
+            return (selected ?? new List<EpisodeFile>()).Select(row =>
+            {
+                string targetPath;
+                return new ActionPreviewRow
+                {
+                    Action = "Selected series-folder move",
+                    Confidence = DisplayOrDash(row.Confidence),
+                    Reason = "Selected series can be moved into one folder named after the series.",
+                    CurrentPath = row.Path,
+                    TargetPath = TryGetSeriesFolderPath(row, targetRoot, GetSeriesFolderNameForRow(row, folderNames), out targetPath) ? targetPath : ""
+                };
+            }).ToList();
         }
 
         private void RunMoveToSeriesFolders(List<EpisodeFile> selected, string targetRoot, Dictionary<string, string> folderNames)
@@ -5607,6 +5639,16 @@ namespace SameEpisodeDuplicateFinder
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.last-move-report.csv");
         }
 
+        private static string GetMoveDryRunReportPath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.last-move-dry-run.csv");
+        }
+
+        private static string GetDeleteDryRunReportPath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.last-delete-dry-run.csv");
+        }
+
         private static string GetErrorLogPath()
         {
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.errors.log");
@@ -5614,23 +5656,33 @@ namespace SameEpisodeDuplicateFinder
 
         private void SaveMoveReport(List<ActionPreviewRow> reportRows)
         {
-            using (var writer = new StreamWriter(GetMoveReportPath(), false, new UTF8Encoding(true)))
-            {
-                writer.WriteLine("Action,Status,Reason,OldPath,NewPath");
-                foreach (var row in reportRows ?? new List<ActionPreviewRow>())
-                {
-                    writer.WriteLine(string.Join(",", new[]
-                    {
-                        Csv(row.Action),
-                        Csv(row.Confidence),
-                        Csv(row.Reason),
-                        Csv(row.CurrentPath),
-                        Csv(row.TargetPath)
-                    }));
-                }
-            }
+            SaveActionReport(GetMoveReportPath(), reportRows);
 
             toolsOpenMoveReportMenuItem.Enabled = File.Exists(GetMoveReportPath());
+        }
+
+        internal static void SaveActionReport(string path, IEnumerable<ActionPreviewRow> reportRows)
+        {
+            using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
+            {
+                WriteActionReport(writer, reportRows);
+            }
+        }
+
+        internal static void WriteActionReport(TextWriter writer, IEnumerable<ActionPreviewRow> reportRows)
+        {
+            writer.WriteLine("Action,Status,Reason,OldPath,NewPath");
+            foreach (var row in reportRows ?? new List<ActionPreviewRow>())
+            {
+                writer.WriteLine(string.Join(",", new[]
+                {
+                    Csv(row.Action),
+                    Csv(row.Confidence),
+                    Csv(row.Reason),
+                    Csv(row.CurrentPath),
+                    Csv(row.TargetPath)
+                }));
+            }
         }
 
         private void OpenMoveReportMenuItem_Click(object sender, EventArgs e)
@@ -6183,6 +6235,7 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            SaveActionReport(GetDeleteDryRunReportPath(), previewRows);
             LogActivity(string.Format("Deleting {0:N0} marked file(s).", marked.Count));
             var deleted = 0;
             var failures = new List<string>();

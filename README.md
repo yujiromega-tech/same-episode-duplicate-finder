@@ -41,6 +41,7 @@ This tool is review assistance, not an automatic deletion authority.
 - Auto Mark can be limited to high-confidence recommendations.
 - Suggested actions can be previewed before applying marks or moves.
 - Move operations write a move report next to the executable.
+- Delete and move confirmations can be saved as dry-run CSV reports before files are changed.
 - Start with a small folder before scanning an entire media library.
 
 ## Requirements
@@ -96,6 +97,9 @@ The app may create local files next to the executable:
 - `SameEpisodeDuplicateFinder.columns` for visible column layout.
 - `SameEpisodeDuplicateFinder.automark` for auto-mark threshold.
 - `SameEpisodeDuplicateFinder.errors.log` for local error details.
+- `SameEpisodeDuplicateFinder.last-delete-dry-run.csv` for the last confirmed delete preview.
+- `SameEpisodeDuplicateFinder.last-move-dry-run.csv` for the last confirmed move preview.
+- `SameEpisodeDuplicateFinder.last-move-report.csv` for the last completed move result.
 - `SameEpisodeDuplicateFinder.anidb` for AniDB settings.
 - `SameEpisodeDuplicateFinder.anidb-titles.xml` for the AniDB title cache.
 
@@ -118,10 +122,8 @@ If UDP lookup times out, wait before retrying and confirm that UDP port 9000 is 
 ## Roadmap
 
 - Split the single source file into smaller classes.
-- Add unit tests for filename parsing, grouping, scoring, and target path generation.
 - Add sample screenshots and example CSV output.
 - Add a signed release build workflow.
-- Consider a safer dry-run report for all destructive or move operations.
 
 ## License
 
