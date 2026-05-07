@@ -25,9 +25,19 @@ Windows duplicate-review tool for anime and episodic media libraries, with scan 
 - filebot
 - csharp
 
+## Version
+
+Initial published version: `0.0.1`.
+
+Use the Git tag:
+
+```text
+v0.0.1
+```
+
 ## First Release Notes
 
-Initial beta release with:
+Version `0.0.1` initial beta release with:
 
 - Same-episode duplicate candidate scanning.
 - Review grid and series navigation.

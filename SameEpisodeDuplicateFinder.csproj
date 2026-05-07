@@ -7,6 +7,9 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>SameEpisodeDuplicateFinder</RootNamespace>
     <AssemblyName>SameEpisodeDuplicateFinder</AssemblyName>
+    <Version>0.0.1</Version>
+    <FileVersion>0.0.1.0</FileVersion>
+    <AssemblyVersion>0.0.1.0</AssemblyVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
@@ -21,6 +24,7 @@
     <Reference Include="Microsoft.VisualBasic" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="src\SameEpisodeDuplicateFinder.cs" />
   </ItemGroup>
 </Project>

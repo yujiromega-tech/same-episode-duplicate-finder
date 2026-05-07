@@ -6,6 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $source = Join-Path $root "src\SameEpisodeDuplicateFinder.cs"
+$assemblyInfo = Join-Path $root "Properties\AssemblyInfo.cs"
 $dist = Join-Path $root "dist"
 $output = Join-Path $dist "SameEpisodeDuplicateFinder.exe"
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -16,6 +17,10 @@ if (!(Test-Path -LiteralPath $csc)) {
 
 if (!(Test-Path -LiteralPath $source)) {
     throw "Source file not found: $source"
+}
+
+if (!(Test-Path -LiteralPath $assemblyInfo)) {
+    throw "Assembly info file not found: $assemblyInfo"
 }
 
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
@@ -34,6 +39,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     /reference:System.Windows.Forms.dll `
     /reference:System.Xml.dll `
     /reference:Microsoft.VisualBasic.dll `
+    $assemblyInfo `
     $source
 
 Write-Host "Built $output"
