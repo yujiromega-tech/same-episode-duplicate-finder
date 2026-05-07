@@ -1,0 +1,29 @@
+# Build outputs
+bin/
+obj/
+dist/
+*.exe
+*.dll
+*.pdb
+*.obj
+*.ilk
+
+# Scan reports and caches
+*.csv
+SameEpisodeDuplicateFinder.lastscan.*
+SameEpisodeDuplicateFinder.fileformats
+SameEpisodeDuplicateFinder.columns
+SameEpisodeDuplicateFinder.beta-seen
+SameEpisodeDuplicateFinder.automark
+SameEpisodeDuplicateFinder.errors.log
+SameEpisodeDuplicateFinder.anidb-titles.xml
+SameEpisodeDuplicateFinder.last-move-report.csv
+
+# Local AniDB credentials/settings
+SameEpisodeDuplicateFinder.anidb
+
+# Editor/system noise
+.vs/
+*.user
+Thumbs.db
+desktop.ini
