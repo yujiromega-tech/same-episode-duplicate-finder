@@ -66,6 +66,16 @@ dist\SameEpisodeDuplicateFinder.exe
 
 If you prefer Visual Studio, open `SameEpisodeDuplicateFinder.csproj` and build it as a Windows Forms application.
 
+## Tests
+
+Run the focused unit test harness with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build-tests.ps1
+```
+
+The tests cover filename parsing, duplicate-group counting, recommendation scoring helpers, and safe target path generation.
+
 ## Usage
 
 1. Launch `SameEpisodeDuplicateFinder.exe`.

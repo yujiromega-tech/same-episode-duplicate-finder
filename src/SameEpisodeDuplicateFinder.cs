@@ -4446,7 +4446,7 @@ namespace SameEpisodeDuplicateFinder
             return true;
         }
 
-        private static bool TryGetSeriesFolderPath(EpisodeFile row, string targetRoot, string folderName, out string targetPath)
+        internal static bool TryGetSeriesFolderPath(EpisodeFile row, string targetRoot, string folderName, out string targetPath)
         {
             targetPath = null;
             if (row == null || string.IsNullOrWhiteSpace(row.Path) || string.IsNullOrWhiteSpace(row.FileName) || string.IsNullOrWhiteSpace(targetRoot))
@@ -4465,7 +4465,7 @@ namespace SameEpisodeDuplicateFinder
             return true;
         }
 
-        private static string GetAvailableTargetPath(string targetFolder, string fileName, string currentPath)
+        internal static string GetAvailableTargetPath(string targetFolder, string fileName, string currentPath)
         {
             var targetPath = Path.Combine(targetFolder, fileName);
             if (!File.Exists(targetPath) || PathsEqual(targetPath, currentPath))
@@ -4487,7 +4487,7 @@ namespace SameEpisodeDuplicateFinder
             throw new IOException("Could not find an available destination name for: " + fileName);
         }
 
-        private static bool PathsEqual(string left, string right)
+        internal static bool PathsEqual(string left, string right)
         {
             if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
             {
@@ -4504,7 +4504,7 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
-        private static string GetSafeFolderName(string name)
+        internal static string GetSafeFolderName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -5442,13 +5442,13 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
-        private static int CountDuplicateEpisodeGroups(IEnumerable<EpisodeFile> files)
+        internal static int CountDuplicateEpisodeGroups(IEnumerable<EpisodeFile> files)
         {
             return files.GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
                         .Count(g => g.Count() > 1);
         }
 
-        private static bool TryParseFile(ScannedFile file, string rootFull, out EpisodeFile result)
+        internal static bool TryParseFile(ScannedFile file, string rootFull, out EpisodeFile result)
         {
             result = null;
             var baseName = file.BaseName;
@@ -6391,7 +6391,7 @@ namespace SameEpisodeDuplicateFinder
             return marked;
         }
 
-        private static string GetDeleteConfidence(long scoreGap)
+        internal static string GetDeleteConfidence(long scoreGap)
         {
             if (scoreGap >= 1000000L)
             {
@@ -6448,7 +6448,7 @@ namespace SameEpisodeDuplicateFinder
             return 1;
         }
 
-        private static string BuildRecommendationReason(EpisodeFile candidate, EpisodeFile keep)
+        internal static string BuildRecommendationReason(EpisodeFile candidate, EpisodeFile keep)
         {
             var reasons = new List<string>();
             var candidateName = ((candidate == null ? "" : candidate.FileName) + " " + (candidate == null ? "" : candidate.Path)).ToLowerInvariant();
@@ -6475,7 +6475,7 @@ namespace SameEpisodeDuplicateFinder
             return reasons.Count == 0 ? "Lower quality score than recommended keep." : string.Join("; ", reasons.ToArray()) + ".";
         }
 
-        private static long GetAutoKeepScore(EpisodeFile file)
+        internal static long GetAutoKeepScore(EpisodeFile file)
         {
             var name = ((file == null ? "" : file.FileName) + " " + (file == null ? "" : file.Path)).ToLowerInvariant();
             var resolution = ExtractResolution(name);
@@ -6484,7 +6484,7 @@ namespace SameEpisodeDuplicateFinder
             return (long)resolution * 100000000L + (long)version * 1000000L + sizeScore;
         }
 
-        private static int ExtractResolution(string text)
+        internal static int ExtractResolution(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
             {
@@ -6510,7 +6510,7 @@ namespace SameEpisodeDuplicateFinder
             return best;
         }
 
-        private static int ExtractVersion(string versionText, string fileText)
+        internal static int ExtractVersion(string versionText, string fileText)
         {
             var best = 0;
             foreach (var text in new[] { versionText ?? "", fileText ?? "" })
