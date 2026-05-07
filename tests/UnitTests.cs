@@ -75,13 +75,13 @@ namespace SameEpisodeDuplicateFinder.Tests
             var sameResolutionSameVersionSmaller = NewEpisode("show|E001", "Show", "Show - 01 [1080p][v2].mkv", 500L * 1024L * 1024L);
             sameResolutionSameVersionSmaller.Version = "v2";
 
-            AssertTrue(MainForm.GetAutoKeepScore(keep) > MainForm.GetAutoKeepScore(lowerResolution), "1080p should beat lower resolution even when lower file is newer/larger");
-            AssertTrue(MainForm.GetAutoKeepScore(keep) > MainForm.GetAutoKeepScore(sameResolutionOlderVersion), "newer version should beat older version");
-            AssertTrue(MainForm.GetAutoKeepScore(keep) > MainForm.GetAutoKeepScore(sameResolutionSameVersionSmaller), "larger file should win after resolution/version tie");
-            AssertEqual("High", MainForm.GetDeleteConfidence(1000000), "high confidence threshold");
-            AssertEqual("Medium", MainForm.GetDeleteConfidence(1), "medium confidence threshold");
-            AssertEqual("Low", MainForm.GetDeleteConfidence(0), "low confidence threshold");
-            AssertContains(MainForm.BuildRecommendationReason(lowerResolution, keep), "higher resolution", "recommendation reason");
+            AssertTrue(RecommendationScorer.GetAutoKeepScore(keep) > RecommendationScorer.GetAutoKeepScore(lowerResolution), "1080p should beat lower resolution even when lower file is newer/larger");
+            AssertTrue(RecommendationScorer.GetAutoKeepScore(keep) > RecommendationScorer.GetAutoKeepScore(sameResolutionOlderVersion), "newer version should beat older version");
+            AssertTrue(RecommendationScorer.GetAutoKeepScore(keep) > RecommendationScorer.GetAutoKeepScore(sameResolutionSameVersionSmaller), "larger file should win after resolution/version tie");
+            AssertEqual("High", RecommendationScorer.GetDeleteConfidence(1000000), "high confidence threshold");
+            AssertEqual("Medium", RecommendationScorer.GetDeleteConfidence(1), "medium confidence threshold");
+            AssertEqual("Low", RecommendationScorer.GetDeleteConfidence(0), "low confidence threshold");
+            AssertContains(RecommendationScorer.BuildRecommendationReason(lowerResolution, keep), "higher resolution", "recommendation reason");
         }
 
         private static void TargetPathGenerationSanitizesAndAvoidsCollisions()
