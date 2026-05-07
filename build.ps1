@@ -5,7 +5,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$source = Join-Path $root "src\SameEpisodeDuplicateFinder.cs"
+$sources = @(
+    (Join-Path $root "src\Models.cs"),
+    (Join-Path $root "src\SameEpisodeDuplicateFinder.cs")
+)
 $assemblyInfo = Join-Path $root "Properties\AssemblyInfo.cs"
 $dist = Join-Path $root "dist"
 $output = Join-Path $dist "SameEpisodeDuplicateFinder.exe"
@@ -15,8 +18,10 @@ if (!(Test-Path -LiteralPath $csc)) {
     throw "The .NET Framework compiler was not found at $csc"
 }
 
-if (!(Test-Path -LiteralPath $source)) {
-    throw "Source file not found: $source"
+foreach ($source in $sources) {
+    if (!(Test-Path -LiteralPath $source)) {
+        throw "Source file not found: $source"
+    }
 }
 
 if (!(Test-Path -LiteralPath $assemblyInfo)) {
@@ -40,6 +45,6 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     /reference:System.Xml.dll `
     /reference:Microsoft.VisualBasic.dll `
     $assemblyInfo `
-    $source
+    $sources
 
 Write-Host "Built $output"

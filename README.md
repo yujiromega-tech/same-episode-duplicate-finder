@@ -114,8 +114,8 @@ If UDP lookup times out, wait before retrying and confirm that UDP port 9000 is 
 ## Limitations
 
 - The app is Windows-only.
-- The current codebase is a single large WinForms source file.
-- There is no automated test suite yet.
+- Much of the current codebase still lives in one large WinForms source file, though model classes and focused tests have started the split.
+- The automated test suite is focused on core parsing, grouping, scoring, action reports, and target path helpers; UI workflows still need broader coverage.
 - Duplicate recommendations are heuristic and should be manually reviewed.
 - External services and tools, including AniDB and FileBot, may fail or be rate-limited independently of this app.
 
