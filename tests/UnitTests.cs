@@ -14,6 +14,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("filename parsing handles anime release names", FilenameParsingHandlesAnimeReleaseNames);
             Run("filename parsing handles season episode names", FilenameParsingHandlesSeasonEpisodeNames);
             Run("grouping counts only repeated episode keys", GroupingCountsRepeatedEpisodeKeys);
+            Run("file format filter supports ignore and allow-only modes", FileFormatFilterSupportsIgnoreAndAllowOnlyModes);
             Run("scoring prefers resolution, version, then size", ScoringPrefersResolutionVersionThenSize);
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
@@ -63,6 +64,24 @@ namespace SameEpisodeDuplicateFinder.Tests
             };
 
             AssertEqual(2, EpisodeParser.CountDuplicateEpisodeGroups(files), "duplicate group count");
+        }
+
+        private static void FileFormatFilterSupportsIgnoreAndAllowOnlyModes()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "sedf-tests");
+            var defaultFilter = FileFormatFilter.CreateDefault();
+
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.ass", 10)), "default filter should ignore subtitles");
+            AssertTrue(!defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.mkv", 10)), "default filter should scan video");
+            AssertEqual(".mkv", FileFormatFilter.NormalizeExtension(" MKV "), "extension normalization");
+
+            var allowOnly = new FileFormatFilter();
+            allowOnly.AllowOnlyListed = true;
+            allowOnly.Extensions.Add(".mkv");
+
+            AssertTrue(!allowOnly.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.mkv", 10)), "allow-only should scan listed extension");
+            AssertTrue(allowOnly.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.mp4", 10)), "allow-only should skip unlisted extension");
+            AssertTrue(allowOnly.ShouldIgnore(CreateScannedFile(root, "Library", "README", 10)), "allow-only should skip extensionless files");
         }
 
         private static void ScoringPrefersResolutionVersionThenSize()

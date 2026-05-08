@@ -75,11 +75,11 @@ Run the focused unit test harness with:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build-tests.ps1
 ```
 
-The tests cover filename parsing, duplicate-group counting, recommendation scoring helpers, and safe target path generation.
+The tests cover filename parsing, duplicate-group counting, file format filtering, recommendation scoring helpers, and safe target path generation.
 
 ## Python CLI Prototype
 
-A standard-library-only Python prototype lives at `python/sedf_cli.py`. It mirrors the core scan, parse, duplicate grouping, scoring, and CSV output flow so the core logic can be explored outside WinForms.
+A standard-library-only Python prototype lives at `python/sedf_cli.py`. It mirrors the core scan, parse, file format filtering, duplicate grouping, scoring, and CSV output flow so the core logic can be explored outside WinForms.
 
 See `docs/PYTHON_CLI.md` for usage and current gaps.
 

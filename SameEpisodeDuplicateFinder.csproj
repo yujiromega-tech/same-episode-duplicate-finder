@@ -26,6 +26,7 @@
   <ItemGroup>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="src\EpisodeParser.cs" />
+    <Compile Include="src\FileFormatFilter.cs" />
     <Compile Include="src\Models.cs" />
     <Compile Include="src\RecommendationScorer.cs" />
     <Compile Include="src\SameEpisodeDuplicateFinder.cs" />

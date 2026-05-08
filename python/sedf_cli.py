@@ -12,7 +12,7 @@ import argparse
 import csv
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
 
@@ -48,6 +48,30 @@ class EpisodeFile:
     confidence: str = ""
     review_status: str = ""
     recommendation_reason: str = ""
+
+
+@dataclass
+class FileFormatFilter:
+    allow_only_listed: bool = False
+    extensions: set[str] = field(default_factory=set)
+
+    def should_ignore(self, path: Path) -> bool:
+        extension = normalize_extension(path.suffix)
+        if not extension:
+            return self.allow_only_listed
+        listed = extension in self.extensions
+        return not listed if self.allow_only_listed else listed
+
+
+def normalize_extension(extension: str) -> str:
+    extension = (extension or "").strip().lower()
+    if not extension:
+        return ""
+    return extension if extension.startswith(".") else f".{extension}"
+
+
+def create_default_filter() -> FileFormatFilter:
+    return FileFormatFilter(allow_only_listed=False, extensions=set(DEFAULT_IGNORED_EXTENSIONS))
 
 
 def normalize_title(title: Optional[str]) -> str:
@@ -209,7 +233,7 @@ def apply_recommendations(files: Iterable[EpisodeFile]) -> None:
             row.recommendation_reason = recommendation_reason(row, keep)
 
 
-def scan(root: Path, ignored_extensions: set[str]) -> tuple[list[EpisodeFile], int, int]:
+def scan(root: Path, file_filter: FileFormatFilter) -> tuple[list[EpisodeFile], int, int]:
     parsed: list[EpisodeFile] = []
     visited = 0
     ignored = 0
@@ -217,7 +241,7 @@ def scan(root: Path, ignored_extensions: set[str]) -> tuple[list[EpisodeFile], i
         for filename in filenames:
             visited += 1
             path = Path(dirpath) / filename
-            if path.suffix.lower() in ignored_extensions:
+            if file_filter.should_ignore(path):
                 ignored += 1
                 continue
             item = parse_file(path, root)
@@ -283,6 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--all", action="store_true", help="Write all parsed episodic files instead of duplicate candidates only.")
     parser.add_argument("--include-ext", action="append", default=[], help="Additional extension to include even if ignored by default, e.g. --include-ext .flac")
     parser.add_argument("--ignore-ext", action="append", default=[], help="Additional extension to ignore, e.g. --ignore-ext .txt")
+    parser.add_argument("--only-ext", action="append", default=[], help="Allow-only mode: scan only this extension. Repeat for multiple extensions, e.g. --only-ext .mkv --only-ext .mp4")
     return parser
 
 
@@ -292,12 +317,16 @@ def main() -> int:
     if not root.is_dir():
         raise SystemExit(f"Folder not found: {root}")
 
-    ignored = set(DEFAULT_IGNORED_EXTENSIONS)
-    ignored.update(ext.lower() if ext.startswith(".") else f".{ext.lower()}" for ext in args.ignore_ext)
-    for ext in args.include_ext:
-        ignored.discard(ext.lower() if ext.startswith(".") else f".{ext.lower()}")
+    file_filter = create_default_filter()
+    if args.only_ext:
+        file_filter.allow_only_listed = True
+        file_filter.extensions = {normalize_extension(ext) for ext in args.only_ext if normalize_extension(ext)}
+    else:
+        file_filter.extensions.update(normalize_extension(ext) for ext in args.ignore_ext if normalize_extension(ext))
+        for ext in args.include_ext:
+            file_filter.extensions.discard(normalize_extension(ext))
 
-    parsed, visited, ignored_count = scan(root, ignored)
+    parsed, visited, ignored_count = scan(root, file_filter)
     apply_recommendations(parsed)
     rows = parsed if args.all else duplicate_rows(parsed)
     write_csv(args.output, rows)

@@ -16,12 +16,19 @@ Write every parsed episodic file instead of duplicate candidates only:
 python python\sedf_cli.py "D:\Anime" --all --output all-episodes.csv
 ```
 
+Scan only selected file formats:
+
+```powershell
+python python\sedf_cli.py "D:\Anime" --only-ext .mkv --only-ext .mp4
+```
+
 ## Current Scope
 
 - Parses anime-style names such as `[Group] Series - 01 [1080p][v2].mkv`.
 - Parses season/episode names such as `Series.S01E12.1080p.mkv`.
 - Groups rows by normalized title and episode key.
 - Scores duplicates by resolution, version tag, then size.
+- Supports default ignore-list filtering and allow-only extension filtering.
 - Writes CSV reports.
 
 ## Known Gaps
