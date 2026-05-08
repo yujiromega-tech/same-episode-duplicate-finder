@@ -7,9 +7,9 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>SameEpisodeDuplicateFinder</RootNamespace>
     <AssemblyName>SameEpisodeDuplicateFinder</AssemblyName>
-    <Version>0.0.2</Version>
-    <FileVersion>0.0.2.0</FileVersion>
-    <AssemblyVersion>0.0.2.0</AssemblyVersion>
+    <Version>0.0.3</Version>
+    <FileVersion>0.0.3.0</FileVersion>
+    <AssemblyVersion>0.0.3.0</AssemblyVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
