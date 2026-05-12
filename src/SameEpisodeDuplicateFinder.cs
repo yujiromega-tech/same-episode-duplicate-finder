@@ -7,9 +7,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -462,134 +460,6 @@ namespace SameEpisodeDuplicateFinder
         }
     }
 
-    internal sealed class AniDbSettings
-    {
-        public string Username { get; set; }
-        public string Password { get; set; }
-        public string ClientName { get; set; }
-        public int ClientVersion { get; set; }
-        public int LocalPort { get; set; }
-
-        public bool HasCredentials
-        {
-            get
-            {
-                return !string.IsNullOrWhiteSpace(Username) &&
-                       !string.IsNullOrWhiteSpace(Password);
-            }
-        }
-    }
-
-    internal static class AniDbSettingsStore
-    {
-        public static string SettingsPath
-        {
-            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.anidb"); }
-        }
-
-        public static AniDbSettings Load()
-        {
-            var settings = CreateDefault();
-            if (!File.Exists(SettingsPath))
-            {
-                return settings;
-            }
-
-            foreach (var line in File.ReadAllLines(SettingsPath, Encoding.UTF8))
-            {
-                var split = line.IndexOf('=');
-                if (split < 0)
-                {
-                    continue;
-                }
-
-                var key = line.Substring(0, split);
-                var value = line.Substring(split + 1);
-                if (string.Equals(key, "Username", StringComparison.OrdinalIgnoreCase))
-                {
-                    settings.Username = value;
-                }
-                else if (string.Equals(key, "Password", StringComparison.OrdinalIgnoreCase))
-                {
-                    settings.Password = Unprotect(value);
-                }
-                else if (string.Equals(key, "ClientName", StringComparison.OrdinalIgnoreCase))
-                {
-                    settings.ClientName = AniDbApiClient.Name;
-                }
-                else if (string.Equals(key, "ClientVersion", StringComparison.OrdinalIgnoreCase))
-                {
-                    int parsed;
-                    if (int.TryParse(value, out parsed) && parsed > 0)
-                    {
-                        settings.ClientVersion = AniDbApiClient.Version;
-                    }
-                }
-                else if (string.Equals(key, "LocalPort", StringComparison.OrdinalIgnoreCase))
-                {
-                    int parsed;
-                    if (int.TryParse(value, out parsed) && parsed >= 0 && parsed <= 65535)
-                    {
-                        settings.LocalPort = parsed;
-                    }
-                }
-            }
-
-            return settings;
-        }
-
-        public static void Save(AniDbSettings settings)
-        {
-            using (var writer = new StreamWriter(SettingsPath, false, new UTF8Encoding(false)))
-            {
-                writer.WriteLine("Username=" + (settings.Username ?? ""));
-                writer.WriteLine("Password=" + Protect(settings.Password ?? ""));
-                writer.WriteLine("ClientName=" + AniDbApiClient.Name);
-                writer.WriteLine("ClientVersion=" + AniDbApiClient.Version);
-                writer.WriteLine("LocalPort=" + settings.LocalPort);
-            }
-        }
-
-        public static void Clear()
-        {
-            if (File.Exists(SettingsPath))
-            {
-                File.Delete(SettingsPath);
-            }
-        }
-
-        public static AniDbSettings CreateDefault()
-        {
-            return new AniDbSettings
-            {
-                ClientName = AniDbApiClient.Name,
-                ClientVersion = AniDbApiClient.Version,
-                LocalPort = 45555
-            };
-        }
-
-        private static string Protect(string value)
-        {
-            var bytes = Encoding.UTF8.GetBytes(value ?? "");
-            var protectedBytes = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
-            return Convert.ToBase64String(protectedBytes);
-        }
-
-        private static string Unprotect(string value)
-        {
-            try
-            {
-                var protectedBytes = Convert.FromBase64String(value ?? "");
-                var bytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.CurrentUser);
-                return Encoding.UTF8.GetString(bytes);
-            }
-            catch
-            {
-                return "";
-            }
-        }
-    }
-
     internal sealed class AniDbAnimeResult
     {
         public string QueryTitle { get; set; }
@@ -605,88 +475,37 @@ namespace SameEpisodeDuplicateFinder
         }
     }
 
-    internal sealed class AniDbClient : IDisposable
+    internal static class AniDbClient
     {
-        private readonly UdpClient udpClient;
-        private readonly IPEndPoint serverEndPoint;
-        private readonly Encoding encoding;
-        private string sessionKey;
-
-        public AniDbClient(int localPort)
+        public static AniDbAnimeResult LookupAnimeById(string aniDbId, string queryTitle, string fallbackTitle)
         {
-            encoding = Encoding.UTF8;
-            udpClient = localPort > 0 ? new UdpClient(localPort) : new UdpClient();
-            udpClient.Client.ReceiveTimeout = 15000;
-            var serverAddress = Dns.GetHostAddresses("api.anidb.net").First(x => x.AddressFamily == AddressFamily.InterNetwork);
-            serverEndPoint = new IPEndPoint(serverAddress, 9000);
-        }
-
-        public void Authenticate(AniDbSettings settings)
-        {
-            var command = string.Format(
-                "AUTH user={0}&pass={1}&protover=3&client={2}&clientver={3}&enc=UTF-8",
-                Encode(settings.Username),
-                Encode(settings.Password),
-                Encode(AniDbApiClient.Name),
-                AniDbApiClient.Version);
-            var response = Send(command);
-            if (!response.StartsWith("200 ", StringComparison.Ordinal) &&
-                !response.StartsWith("201 ", StringComparison.Ordinal))
+            var result = new AniDbAnimeResult
             {
-                throw new InvalidOperationException("AniDB login failed: " + FirstLine(response));
-            }
+                AniDbId = aniDbId,
+                QueryTitle = queryTitle,
+                Title = fallbackTitle
+            };
 
-            var parts = FirstLine(response).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 2)
-            {
-                throw new InvalidOperationException("AniDB login response did not include a session key.");
-            }
-
-            sessionKey = parts[1];
-        }
-
-        public AniDbAnimeResult LookupAnime(string title)
-        {
-            var result = new AniDbAnimeResult();
-            result.QueryTitle = title;
-
-            var response = Send("ANIME aname=" + Encode(title) + "&s=" + sessionKey);
-            if (response.StartsWith("330 ", StringComparison.Ordinal))
+            if (string.IsNullOrWhiteSpace(aniDbId))
             {
                 result.Error = "No AniDB match";
                 return result;
             }
 
-            if (!response.StartsWith("230 ", StringComparison.Ordinal))
-            {
-                result.Error = FirstLine(response);
-                return result;
-            }
-
-            var lines = response.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            if (lines.Length < 2)
-            {
-                result.Error = "AniDB returned no anime data";
-                return result;
-            }
-
-            var fields = lines[1].Split('|');
-            result.AniDbId = GetField(fields, 0);
-            result.Year = GetField(fields, 10);
-            var romaji = GetField(fields, 12);
-            var english = GetField(fields, 14);
-            result.Title = string.IsNullOrWhiteSpace(english) ? romaji : english;
-            if (string.IsNullOrWhiteSpace(result.Title))
+            var xml = DownloadAnimeXml(aniDbId);
+            result.PictureFile = ExtractElement(xml, "picture");
+            result.Year = ExtractYear(xml);
+            var title = ExtractTitle(xml);
+            if (!string.IsNullOrWhiteSpace(title))
             {
                 result.Title = title;
             }
+            if (string.IsNullOrWhiteSpace(result.Title))
+            {
+                result.Title = queryTitle;
+            }
 
             return result;
-        }
-
-        public string GetAnimePictureFile(AniDbSettings settings, string aniDbId)
-        {
-            return GetAnimePictureFile(aniDbId);
         }
 
         public static string GetAnimePictureFile(string aniDbId)
@@ -696,6 +515,12 @@ namespace SameEpisodeDuplicateFinder
                 return "";
             }
 
+            var xml = DownloadAnimeXml(aniDbId);
+            return ExtractElement(xml, "picture");
+        }
+
+        private static string DownloadAnimeXml(string aniDbId)
+        {
             var url = string.Format(
                 "http://api.anidb.net:9001/httpapi?request=anime&client={0}&clientver={1}&protover=1&aid={2}",
                 Encode(AniDbApiClient.Name),
@@ -705,174 +530,54 @@ namespace SameEpisodeDuplicateFinder
             {
                 webClient.Encoding = Encoding.UTF8;
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
-                var xml = webClient.DownloadString(url);
-                var match = Regex.Match(xml, @"<picture>\s*(?<picture>[^<]+)\s*</picture>", RegexOptions.IgnoreCase);
-                return match.Success ? WebUtility.HtmlDecode(match.Groups["picture"].Value.Trim()) : "";
+                return webClient.DownloadString(url);
             }
         }
 
-        public void Dispose()
+        private static string ExtractTitle(string xml)
         {
-            if (!string.IsNullOrWhiteSpace(sessionKey))
+            var matches = Regex.Matches(xml ?? "", @"<title\b(?<attrs>[^>]*)>(?<title>[^<]+)</title>", RegexOptions.IgnoreCase);
+            foreach (Match match in matches)
             {
-                try
+                if (match.Groups["attrs"].Value.IndexOf("type=\"main\"", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    Send("LOGOUT s=" + sessionKey);
+                    return WebUtility.HtmlDecode(match.Groups["title"].Value.Trim());
                 }
-                catch
+            }
+            foreach (Match match in matches)
+            {
+                if (match.Groups["attrs"].Value.IndexOf("type=\"official\"", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
+                    return WebUtility.HtmlDecode(match.Groups["title"].Value.Trim());
                 }
             }
 
-            udpClient.Close();
+            return matches.Count > 0 ? WebUtility.HtmlDecode(matches[0].Groups["title"].Value.Trim()) : "";
         }
 
-        private string Send(string command)
+        private static string ExtractYear(string xml)
         {
-            try
+            var startDate = ExtractElement(xml, "startdate");
+            if (!string.IsNullOrWhiteSpace(startDate) && startDate.Length >= 4)
             {
-                var bytes = encoding.GetBytes(command + "\n");
-                udpClient.Send(bytes, bytes.Length, serverEndPoint);
-                var remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
-                var responseBytes = udpClient.Receive(ref remoteEndPoint);
-                return encoding.GetString(responseBytes);
+                return startDate.Substring(0, 4);
             }
-            catch (SocketException ex)
-            {
-                throw new InvalidOperationException("AniDB UDP request failed: " + ex.Message + "  If this is a timeout, wait 30 minutes before retrying and make sure UDP port 9000 is allowed.", ex);
-            }
+
+            return ExtractElement(xml, "year");
+        }
+
+        private static string ExtractElement(string xml, string elementName)
+        {
+            var match = Regex.Match(xml ?? "", @"<" + Regex.Escape(elementName) + @">\s*(?<value>[^<]+)\s*</" + Regex.Escape(elementName) + @">", RegexOptions.IgnoreCase);
+            return match.Success ? WebUtility.HtmlDecode(match.Groups["value"].Value.Trim()) : "";
         }
 
         private static string Encode(string value)
         {
             return Uri.EscapeDataString(value ?? "").Replace("%20", "+");
         }
-
-        private static string FirstLine(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-            {
-                return "";
-            }
-
-            var index = text.IndexOf('\n');
-            return index < 0 ? text.Trim() : text.Substring(0, index).Trim();
-        }
-
-        private static string GetField(string[] fields, int index)
-        {
-            return index >= 0 && index < fields.Length ? fields[index] : "";
-        }
     }
 
-    internal sealed class AniDbLookupDialog : Form
-    {
-        private readonly TextBox usernameBox;
-        private readonly TextBox passwordBox;
-        private readonly NumericUpDown localPortBox;
-
-        public AniDbLookupDialog(AniDbSettings savedSettings, bool lookupMode)
-        {
-            Text = lookupMode ? "AniDB Lookup" : "AniDB Login";
-            StartPosition = FormStartPosition.CenterParent;
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MinimizeBox = false;
-            MaximizeBox = false;
-            ClientSize = new Size(420, 176);
-
-            var layout = new TableLayoutPanel();
-            layout.Dock = DockStyle.Fill;
-            layout.Padding = new Padding(12);
-            layout.ColumnCount = 2;
-            layout.RowCount = 4;
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            for (var i = 0; i < 3; i++)
-            {
-                layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
-            }
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-
-            usernameBox = new TextBox();
-            usernameBox.Dock = DockStyle.Fill;
-            usernameBox.Text = savedSettings == null ? "" : savedSettings.Username;
-
-            passwordBox = new TextBox();
-            passwordBox.Dock = DockStyle.Fill;
-            passwordBox.UseSystemPasswordChar = true;
-            passwordBox.Text = savedSettings == null ? "" : savedSettings.Password;
-
-            localPortBox = new NumericUpDown();
-            localPortBox.Dock = DockStyle.Left;
-            localPortBox.Minimum = 0;
-            localPortBox.Maximum = 65535;
-            localPortBox.Value = savedSettings == null ? 45555 : Math.Max(0, Math.Min(65535, savedSettings.LocalPort));
-
-            AddRow(layout, 0, "Username", usernameBox);
-            AddRow(layout, 1, "Password", passwordBox);
-            AddRow(layout, 2, "Local UDP port", localPortBox);
-
-            var buttons = new FlowLayoutPanel();
-            buttons.Dock = DockStyle.Bottom;
-            buttons.FlowDirection = FlowDirection.RightToLeft;
-            buttons.Padding = new Padding(8);
-            buttons.Height = 48;
-
-            var okButton = new Button();
-            okButton.Text = lookupMode ? "Lookup" : "Login";
-            okButton.Width = 90;
-            okButton.Click += delegate
-            {
-                if (string.IsNullOrWhiteSpace(usernameBox.Text) ||
-                    string.IsNullOrWhiteSpace(passwordBox.Text))
-                {
-                    MessageBox.Show(this, "Username and password are required for AniDB UDP lookup.", "AniDB Lookup", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-
-                DialogResult = DialogResult.OK;
-            };
-
-            var cancelButton = new Button();
-            cancelButton.Text = "Cancel";
-            cancelButton.Width = 90;
-            cancelButton.DialogResult = DialogResult.Cancel;
-
-            buttons.Controls.Add(okButton);
-            buttons.Controls.Add(cancelButton);
-
-            Controls.Add(layout);
-            Controls.Add(buttons);
-            AcceptButton = okButton;
-            CancelButton = cancelButton;
-        }
-
-        public AniDbSettings Settings
-        {
-            get
-            {
-                return new AniDbSettings
-                {
-                    Username = usernameBox.Text.Trim(),
-                    Password = passwordBox.Text,
-                    ClientName = AniDbApiClient.Name,
-                    ClientVersion = AniDbApiClient.Version,
-                    LocalPort = (int)localPortBox.Value
-                };
-            }
-        }
-
-        private static void AddRow(TableLayoutPanel layout, int row, string labelText, Control control)
-        {
-            var label = new Label();
-            label.Text = labelText;
-            label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Dock = DockStyle.Fill;
-            control.Margin = new Padding(3, 3, 3, 3);
-            layout.Controls.Add(label, 0, row);
-            layout.Controls.Add(control, 1, row);
-        }
-    }
     internal sealed class FileFormatFilterDialog : Form
     {
         private static readonly string[] CommonExtensions =
@@ -1475,7 +1180,6 @@ namespace SameEpisodeDuplicateFinder
         private readonly BindingList<EpisodeFile> deletionRows;
         private readonly BindingSource source;
         private readonly BindingSource deletionSource;
-        private AniDbSettings savedAniDbSettings;
         private FileFormatFilter fileFormatFilter;
         private AutoMarkThreshold autoMarkThreshold;
         private DataGridView activeGrid;
@@ -1508,7 +1212,6 @@ namespace SameEpisodeDuplicateFinder
             source.DataSource = rows;
             deletionSource = new BindingSource();
             deletionSource.DataSource = deletionRows;
-            savedAniDbSettings = AniDbSettingsStore.Load();
             fileFormatFilter = FileFormatFilterStore.Load();
             autoMarkThreshold = AutoMarkThresholdStore.Load();
             activeReviewFilter = "All";
@@ -1575,8 +1278,8 @@ namespace SameEpisodeDuplicateFinder
             toolsClearMarksMenuItem.ToolTipText = "Remove all current deletion marks without changing files on disk.";
             toolsClearMarksMenuItem.Enabled = false;
             toolsClearMarksMenuItem.Click += ClearMarksButton_Click;
-            toolsAniDbMenuItem = new ToolStripMenuItem(savedAniDbSettings.HasCredentials ? "Metadata Lookup" : "AniDB Login");
-            toolsAniDbMenuItem.ToolTipText = "Use AniDB for primary metadata lookup, with TVDB and TMDB fallback where configured.";
+            toolsAniDbMenuItem = new ToolStripMenuItem("Metadata Lookup");
+            toolsAniDbMenuItem.ToolTipText = "Use AniDB HTTP XML/title cache first, then TVDB and TMDB fallback where configured. No AniDB login is required.";
             toolsAniDbMenuItem.Click += AniDbButton_Click;
             toolsAniDbCoversMenuItem = new ToolStripMenuItem("Fetch Missing Covers...");
             toolsAniDbCoversMenuItem.ToolTipText = "Find missing cover art through AniDB, with TVDB and TMDB used as backup providers.";
@@ -2654,10 +2357,10 @@ namespace SameEpisodeDuplicateFinder
             MessageBox.Show(
                 this,
                 "Metadata provider settings are saved in local files next to the EXE.\r\n\r\n" +
-                "AniDB HTTP XML cover requests use client duplikates version 1. AniDB account passwords are protected with Windows user-level data protection.\r\n\r\n" +
+                "AniDB HTTP XML requests use client duplikates version 1 and do not require an AniDB login.\r\n\r\n" +
                 "TVDB and TMDB API credentials are stored locally and protected with Windows user-level data protection when saved by the app.\r\n\r\n" +
                 "This product uses the TMDB API but is not endorsed or certified by TMDB.\r\n\r\n" +
-                "To clear saved AniDB credentials: Tools > AniDB Login, then choose the logout/forget option when prompted.",
+                "Older saved AniDB UDP credentials are no longer used by the normal metadata and cover workflows.",
                 "Metadata Providers",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
@@ -3071,7 +2774,7 @@ namespace SameEpisodeDuplicateFinder
 
         private string GetProviderStatusSummary()
         {
-            var aniDb = savedAniDbSettings != null && savedAniDbSettings.HasCredentials ? "AniDB ready" : "AniDB login needed";
+            var aniDb = "AniDB HTTP ready";
             var tvDb = TvDbSettingsStore.Load().HasApiKey ? "TVDB ready" : "TVDB missing key";
             var tmDb = TmDbSettingsStore.Load().HasReadAccessToken ? "TMDB ready" : "TMDB missing token";
             return aniDb + " | " + tvDb + " | " + tmDb;
@@ -4608,52 +4311,13 @@ namespace SameEpisodeDuplicateFinder
         private void AniDbButton_Click(object sender, EventArgs e)
         {
             var hasScannedData = allRows.Count > 0 || allScannedRows.Count > 0;
-            if (!hasScannedData && savedAniDbSettings.HasCredentials)
+            if (!hasScannedData)
             {
-                var choice = MessageBox.Show(
-                    this,
-                    "AniDB credentials are saved.\r\n\r\nChoose Yes to test login now.\r\nChoose No to log out and forget saved credentials.",
-                    "AniDB Login",
-                    MessageBoxButtons.YesNoCancel,
-                    MessageBoxIcon.Question);
-                if (choice == DialogResult.Yes)
-                {
-                    RunAniDbLogin(savedAniDbSettings);
-                }
-                else if (choice == DialogResult.No)
-                {
-                    AniDbSettingsStore.Clear();
-                    savedAniDbSettings = AniDbSettingsStore.CreateDefault();
-                    UpdateAniDbButtonState(false);
-                    UpdateActivity("AniDB credentials forgotten.", true);
-                }
-
+                MessageBox.Show(this, "Load or scan files before running metadata lookup.", "Metadata Lookup", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            if (savedAniDbSettings.HasCredentials)
-            {
-                RunAniDbLookup(savedAniDbSettings);
-                return;
-            }
-
-            using (var dialog = new AniDbLookupDialog(savedAniDbSettings, hasScannedData))
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK)
-                {
-                    return;
-                }
-                
-                var settings = dialog.Settings;
-                if (!hasScannedData)
-                {
-                    RunAniDbLogin(settings);
-                }
-                else
-                {
-                    RunAniDbLookup(settings);
-                }
-            }
+            RunMetadataLookup();
         }
 
         private void AniDbMissingCoversMenuItem_Click(object sender, EventArgs e)
@@ -4664,49 +4328,10 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            RunAniDbMissingCoverScan(AniDbSettingsStore.CreateDefault());
+            RunAniDbMissingCoverScan();
         }
 
-        private void RunAniDbLogin(AniDbSettings settings)
-        {
-            SetBusy(true, "Logging in to AniDB...");
-            var worker = new BackgroundWorker();
-            worker.DoWork += delegate
-            {
-                using (var client = new AniDbClient(settings.LocalPort))
-                {
-                    client.Authenticate(settings);
-                }
-            };
-            worker.RunWorkerCompleted += delegate(object workerSender, RunWorkerCompletedEventArgs args)
-            {
-                try
-                {
-                    if (args.Error != null)
-                    {
-                        throw args.Error;
-                    }
-
-                    savedAniDbSettings = settings;
-                    AniDbSettingsStore.Save(settings);
-                    UpdateActivity("AniDB login saved. Future lookups will use these credentials by default.", true);
-                    UpdateAniDbButtonState(false);
-                }
-                catch (Exception ex)
-                {
-                    LogException("AniDB login failed", ex);
-                    MessageBox.Show(this, ex.Message, "AniDB login failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    UpdateActivity("AniDB login failed.", true);
-                }
-                finally
-                {
-                    SetBusy(false, statusLabel.Text);
-                }
-            };
-            worker.RunWorkerAsync();
-        }
-
-        private void RunAniDbMissingCoverScan(AniDbSettings settings)
+        private void RunAniDbMissingCoverScan()
         {
             var missing = GetSeriesSourceRows().GroupBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
                                  .Where(g => !string.IsNullOrWhiteSpace(g.Key) && string.IsNullOrWhiteSpace(FindSeriesCoverPath(g)))
@@ -4748,7 +4373,7 @@ namespace SameEpisodeDuplicateFinder
                     var targetFolder = GetSeriesCoverTargetFolder(group);
                     try
                     {
-                        var match = GetAniDbMatchForCover(null, settings, group.Key, group);
+                        var match = GetAniDbMatchForCover(group.Key, group);
                         if (string.IsNullOrWhiteSpace(targetFolder))
                         {
                             skipped++;
@@ -4842,7 +4467,7 @@ namespace SameEpisodeDuplicateFinder
                     {
                         BeginInvoke(new Action(delegate
                         {
-                            ShowAniDbCoverMatchDialog(settings, manualCandidates);
+                            ShowAniDbCoverMatchDialog(manualCandidates);
                         }));
                     }
                 }
@@ -4860,9 +4485,9 @@ namespace SameEpisodeDuplicateFinder
             worker.RunWorkerAsync();
         }
 
-        private AniDbAnimeResult GetAniDbMatchForCover(AniDbClient client, AniDbSettings settings, string title, IEnumerable<EpisodeFile> files)
+        private AniDbAnimeResult GetAniDbMatchForCover(string title, IEnumerable<EpisodeFile> files)
         {
-            var existing = files.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.AniDbId));
+            var existing = files.FirstOrDefault(x => IsAniDbHttpId(x.AniDbId));
             var match = new AniDbAnimeResult { QueryTitle = title };
             if (existing != null)
             {
@@ -4899,6 +4524,11 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return match;
+        }
+
+        private static bool IsAniDbHttpId(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value.Trim(), @"^\d+$");
         }
 
         private static void AddAniDbCoverCandidates(List<AniDbTitleCandidate> candidates, List<string> failures, string queryTitle, string targetFolder)
@@ -4940,7 +4570,7 @@ namespace SameEpisodeDuplicateFinder
             return string.IsNullOrWhiteSpace(cleaned) ? title : cleaned;
         }
 
-        private void ShowAniDbCoverMatchDialog(AniDbSettings settings, List<AniDbTitleCandidate> candidates)
+        private void ShowAniDbCoverMatchDialog(List<AniDbTitleCandidate> candidates)
         {
             var deduped = candidates.Where(x => !string.IsNullOrWhiteSpace(x.TargetFolder))
                                     .GroupBy(x => x.QueryTitle + "|" + x.AniDbId, StringComparer.OrdinalIgnoreCase)
@@ -4968,11 +4598,11 @@ namespace SameEpisodeDuplicateFinder
                     return;
                 }
 
-                RunManualAniDbCoverFetch(settings, selected);
+                RunManualAniDbCoverFetch(selected);
             }
         }
 
-        private void RunManualAniDbCoverFetch(AniDbSettings settings, List<AniDbTitleCandidate> selected)
+        private void RunManualAniDbCoverFetch(List<AniDbTitleCandidate> selected)
         {
             SetBusy(true, "Fetching selected AniDB covers...");
             var worker = new BackgroundWorker();
@@ -5147,7 +4777,7 @@ namespace SameEpisodeDuplicateFinder
             return string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder) ? null : folder;
         }
 
-        private void RunAniDbLookup(AniDbSettings settings)
+        private void RunMetadataLookup()
         {
             var titles = GetSeriesSourceRows().Select(x => x.Title)
                                     .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -5170,65 +4800,40 @@ namespace SameEpisodeDuplicateFinder
                 var tvDbClient = tvDbSettings.HasApiKey ? new TvDbClient(tvDbSettings) : null;
                 var tmDbSettings = TmDbSettingsStore.Load();
                 var tmDbClient = tmDbSettings.HasReadAccessToken ? new TmDbClient(tmDbSettings) : null;
-                try
+                for (var i = 0; i < titles.Count; i++)
                 {
-                    using (var client = new AniDbClient(settings.LocalPort))
+                    ThrowIfCancellationRequested(delegate { return cancelRequested; });
+                    var title = titles[i];
+                    AniDbAnimeResult match = null;
+                    try
                     {
-                        client.Authenticate(settings);
-                        for (var i = 0; i < titles.Count; i++)
-                        {
-                            ThrowIfCancellationRequested(delegate { return cancelRequested; });
-                            var title = titles[i];
-                            worker.ReportProgress(0, string.Format("AniDB lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                            var match = client.LookupAnime(title);
-                            if ((match == null || !match.Found) && tvDbClient != null)
-                            {
-                                worker.ReportProgress(0, string.Format("TVDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                                match = tvDbClient.LookupSeries(title).ToMetadataResult();
-                            }
-                            if ((match == null || !match.Found) && tmDbClient != null)
-                            {
-                                worker.ReportProgress(0, string.Format("TMDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                                match = tmDbClient.LookupSeries(title).ToMetadataResult();
-                            }
-                            matches[title] = match;
-                            if (i + 1 < titles.Count)
-                            {
-                                Thread.Sleep(2200);
-                            }
-                        }
+                        worker.ReportProgress(0, string.Format("AniDB HTTP lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                        match = LookupAniDbMetadata(title);
                     }
-                }
-                catch (Exception)
-                {
-                    if (tvDbClient == null && tmDbClient == null)
+                    catch (Exception ex)
                     {
-                        throw;
+                        match = new AniDbAnimeResult { QueryTitle = title, Error = ex.Message };
                     }
 
-                    matches.Clear();
-                    for (var i = 0; i < titles.Count; i++)
+                    if ((match == null || !match.Found) && tvDbClient != null)
                     {
-                        ThrowIfCancellationRequested(delegate { return cancelRequested; });
-                        var title = titles[i];
-                        if (tvDbClient != null)
-                        {
-                            worker.ReportProgress(0, string.Format("TVDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                            var fallbackMatch = tvDbClient.LookupSeries(title).ToMetadataResult();
-                            if (fallbackMatch.Found || tmDbClient == null)
-                            {
-                                matches[title] = fallbackMatch;
-                            }
-                        }
-                        if (!matches.ContainsKey(title) && tmDbClient != null)
-                        {
-                            worker.ReportProgress(0, string.Format("TMDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                            matches[title] = tmDbClient.LookupSeries(title).ToMetadataResult();
-                        }
-                        if (i + 1 < titles.Count)
-                        {
-                            Thread.Sleep(1200);
-                        }
+                        worker.ReportProgress(0, string.Format("TVDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                        match = tvDbClient.LookupSeries(title).ToMetadataResult();
+                    }
+                    if ((match == null || !match.Found) && tmDbClient != null)
+                    {
+                        worker.ReportProgress(0, string.Format("TMDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                        match = tmDbClient.LookupSeries(title).ToMetadataResult();
+                    }
+                    if (match == null)
+                    {
+                        match = new AniDbAnimeResult { QueryTitle = title, Error = "No metadata match" };
+                    }
+
+                    matches[title] = match;
+                    if (i + 1 < titles.Count)
+                    {
+                        Thread.Sleep(match.Found && IsAniDbHttpId(match.AniDbId) ? 2200 : 1200);
                     }
                 }
 
@@ -5253,8 +4858,6 @@ namespace SameEpisodeDuplicateFinder
                         throw args.Error;
                     }
 
-                    savedAniDbSettings = settings;
-                    AniDbSettingsStore.Save(settings);
                     UpdateAniDbButtonState(false);
                     var matches = (Dictionary<string, AniDbAnimeResult>)args.Result;
                     ApplyAniDbMatches(matches);
@@ -5279,6 +4882,27 @@ namespace SameEpisodeDuplicateFinder
                 }
             };
             worker.RunWorkerAsync();
+        }
+
+        private AniDbAnimeResult LookupAniDbMetadata(string title)
+        {
+            var candidates = AniDbTitleIndex.FindCandidates(title, "", 1);
+            if (candidates.Count == 0)
+            {
+                var relaxedTitle = BuildAniDbCoverSearchTitle(title);
+                if (!string.Equals(relaxedTitle, title, StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates = AniDbTitleIndex.FindCandidates(relaxedTitle, "", 1);
+                }
+            }
+
+            var candidate = candidates.FirstOrDefault();
+            if (candidate == null)
+            {
+                return new AniDbAnimeResult { QueryTitle = title, Error = "No AniDB match" };
+            }
+
+            return AniDbClient.LookupAnimeById(candidate.AniDbId, title, candidate.Title);
         }
 
         private void ApplyAniDbMatches(Dictionary<string, AniDbAnimeResult> matches)
@@ -6468,14 +6092,7 @@ namespace SameEpisodeDuplicateFinder
 
         private void UpdateAniDbButtonState(bool busy)
         {
-            if (allRows.Count > 0 || rows.Count > 0 || deletionRows.Count > 0 || allScannedRows.Count > 0)
-            {
-                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "Metadata Lookup" : "AniDB Login";
-            }
-            else
-            {
-                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "Metadata Ready" : "AniDB Login";
-            }
+            toolsAniDbMenuItem.Text = "Metadata Lookup";
             toolsAniDbMenuItem.Enabled = !busy;
             toolsAniDbCoversMenuItem.Enabled = !busy && (allRows.Count > 0 || rows.Count > 0 || deletionRows.Count > 0 || allScannedRows.Count > 0);
             UpdateDashboard();

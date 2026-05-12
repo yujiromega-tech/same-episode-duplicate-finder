@@ -106,16 +106,16 @@ The app may create local files next to the executable:
 - `SameEpisodeDuplicateFinder.last-delete-dry-run.csv` for the last confirmed delete preview.
 - `SameEpisodeDuplicateFinder.last-move-dry-run.csv` for the last confirmed move preview.
 - `SameEpisodeDuplicateFinder.last-move-report.csv` for the last completed move result.
-- `SameEpisodeDuplicateFinder.anidb` for AniDB settings.
+- `SameEpisodeDuplicateFinder.anidb` for legacy AniDB UDP settings from older builds.
 - `SameEpisodeDuplicateFinder.anidb-titles.xml` for the AniDB title cache.
 
 These files are ignored by Git because they may contain local library data, credentials, or machine-specific state.
 
 ## AniDB Notes
 
-AniDB lookup uses AniDB's UDP API and title/cover endpoints. Saved AniDB passwords are protected with Windows user-level data protection for the current Windows account, but the settings file is still local private state and should not be committed.
+AniDB lookup uses the local title cache and AniDB HTTP XML endpoints with the `duplikates` v1 client. The current workflow does not require AniDB login, stored AniDB credentials, or UDP port 9000.
 
-If UDP lookup times out, wait before retrying and confirm that UDP port 9000 is allowed.
+TVDB and TMDB can be configured as fallback metadata and cover providers when AniDB does not return a useful match or cover.
 
 ## Limitations
 
