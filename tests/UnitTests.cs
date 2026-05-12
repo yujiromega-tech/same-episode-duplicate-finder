@@ -22,6 +22,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses first missing episode", MissingEpisodeSearchQueryUsesFirstMissingEpisode);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
+            Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -231,6 +232,30 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertContains(link, "magnet:?xt=urn:btih:ABC123", "magnet hash");
             AssertContains(link, "dn=Air%20Gear%2003", "magnet display name");
             AssertEqual("", EpisodeSearchService.BuildMagnetLinkForTest("", "Air Gear 03"), "empty hash");
+        }
+
+        private static void MergedScanRecomputesDuplicateGroupsAcrossRoots()
+        {
+            var existing = new List<EpisodeFile>
+            {
+                NewEpisode("show|E001", "Show", "Show - 01 [1080p].mkv", 100),
+                NewEpisode("show|E002", "Show", "Show - 02 [1080p].mkv", 100)
+            };
+            existing[0].Path = "D:\\Anime\\Show - 01 [1080p].mkv";
+            existing[1].Path = "D:\\Anime\\Show - 02 [1080p].mkv";
+
+            var added = new List<EpisodeFile>
+            {
+                NewEpisode("show|E001", "Show", "Show - 01 [720p].mkv", 90),
+                NewEpisode("other|E001", "Other", "Other - 01.mkv", 50)
+            };
+            added[0].Path = "E:\\Anime\\Show - 01 [720p].mkv";
+            added[1].Path = "E:\\Anime\\Other - 01.mkv";
+
+            var merged = MainForm.BuildMergedScanResult(existing, added);
+            AssertEqual(4, merged.ScannedRows.Count, "merged scanned count");
+            AssertEqual(2, merged.DuplicateRows.Count, "merged duplicate candidate count");
+            AssertEqual(1, merged.DuplicateGroups, "merged duplicate group count");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

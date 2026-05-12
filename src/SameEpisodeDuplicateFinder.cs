@@ -1141,6 +1141,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolTip toolTip;
         private readonly MenuStrip mainMenu;
         private readonly ToolStripMenuItem fileBrowseMenuItem;
+        private readonly ToolStripMenuItem fileAddScanLocationMenuItem;
         private readonly ToolStripMenuItem fileLoadSavedMenuItem;
         private readonly ToolStripMenuItem fileExportMenuItem;
         private readonly ToolStripMenuItem viewColumnsMenuItem;
@@ -1284,6 +1285,9 @@ namespace SameEpisodeDuplicateFinder
             fileBrowseMenuItem = new ToolStripMenuItem("Browse and Scan...");
             fileBrowseMenuItem.ToolTipText = "Choose a folder and immediately scan it for duplicate episode candidates.";
             fileBrowseMenuItem.Click += BrowseButton_Click;
+            fileAddScanLocationMenuItem = new ToolStripMenuItem("Add Scan Location...");
+            fileAddScanLocationMenuItem.ToolTipText = "Scan another folder or drive and merge it into the current session.";
+            fileAddScanLocationMenuItem.Click += AddScanLocationMenuItem_Click;
             fileLoadSavedMenuItem = new ToolStripMenuItem("Open Last Scan");
             fileLoadSavedMenuItem.ToolTipText = "Open the cached results from the last scanned folder.";
             fileLoadSavedMenuItem.Enabled = File.Exists(GetCachePath());
@@ -1293,6 +1297,7 @@ namespace SameEpisodeDuplicateFinder
             fileExportMenuItem.Enabled = false;
             fileExportMenuItem.Click += ExportButton_Click;
             fileMenu.DropDownItems.Add(fileBrowseMenuItem);
+            fileMenu.DropDownItems.Add(fileAddScanLocationMenuItem);
             fileMenu.DropDownItems.Add(fileLoadSavedMenuItem);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add(fileExportMenuItem);
@@ -1449,6 +1454,7 @@ namespace SameEpisodeDuplicateFinder
             rootBox.Margin = new Padding(0, 4, 8, 4);
             rootBox.TextChanged += RootBox_TextChanged;
             toolTip.SetToolTip(rootBox, "Last scanned folder. Use File > Browse and Scan to choose a different folder.");
+            rootBox.Tag = "";
 
             var searchLabel = new Label();
             searchLabel.Text = "Search";
@@ -2644,7 +2650,26 @@ namespace SameEpisodeDuplicateFinder
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
                     rootBox.Text = dialog.SelectedPath;
-                    StartScan(dialog.SelectedPath);
+                    StartScan(dialog.SelectedPath, false);
+                }
+            }
+        }
+
+        private void AddScanLocationMenuItem_Click(object sender, EventArgs e)
+        {
+            if (allRows.Count == 0 && allScannedRows.Count == 0)
+            {
+                MessageBox.Show(this, "Run Browse and Scan first, then add another location to the loaded session.", "Add Scan Location", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (var dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "Choose another folder or drive to add to the current scan";
+                dialog.SelectedPath = Directory.Exists(rootBox.Text) ? rootBox.Text : "";
+                if (dialog.ShowDialog(this) == DialogResult.OK)
+                {
+                    StartScan(dialog.SelectedPath, true);
                 }
             }
         }
@@ -2742,6 +2767,9 @@ namespace SameEpisodeDuplicateFinder
             ShowRows(allRows);
             PopulateSeriesPanel();
             PopulateMissingEpisodesPanel();
+            UpdateCandidateTotal();
+            RefreshDeletionRows();
+            UpdateDashboard();
         }
 
         private static List<EpisodeFile> MergeScannedRowsWithDuplicates(List<EpisodeFile> scannedData, List<EpisodeFile> duplicateRows)
@@ -3830,7 +3858,7 @@ namespace SameEpisodeDuplicateFinder
                         !string.IsNullOrWhiteSpace(rootBox.Text) &&
                         Directory.Exists(rootBox.Text.Trim()))
                     {
-                        StartScan(rootBox.Text.Trim());
+                        StartScan(rootBox.Text.Trim(), false);
                     }
                 }
                 catch (Exception ex)
@@ -4738,7 +4766,7 @@ namespace SameEpisodeDuplicateFinder
 
         private void ScanButton_Click(object sender, EventArgs e)
         {
-            StartScan(rootBox.Text.Trim());
+            StartScan(rootBox.Text.Trim(), false);
         }
 
         private void FileFormatsMenuItem_Click(object sender, EventArgs e)
@@ -4758,7 +4786,7 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
-        private void StartScan(string root)
+        private void StartScan(string root, bool append)
         {
             if (!Directory.Exists(root))
             {
@@ -4766,22 +4794,28 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            SetBusy(true, "Preparing scan...");
-            rows.Clear();
-            UpdateCandidateTotal();
-            deletionRows.Clear();
-            UpdateDeletionTotal();
-            allRows.Clear();
-            allScannedRows.Clear();
-            seriesListView.Items.Clear();
-            seriesCoverView.Items.Clear();
-            seriesCoverImages.Images.Clear();
-            activeSeriesTag = null;
-            UpdateDetails((EpisodeFile)null);
+            SetBusy(true, append ? "Preparing additional scan..." : "Preparing scan...");
+            if (!append)
+            {
+                rows.Clear();
+                UpdateCandidateTotal();
+                deletionRows.Clear();
+                UpdateDeletionTotal();
+                allRows.Clear();
+                allScannedRows.Clear();
+                missingEpisodeRows.Clear();
+                episodeSearchRows.Clear();
+                seriesListView.Items.Clear();
+                seriesCoverView.Items.Clear();
+                seriesCoverImages.Images.Clear();
+                activeSeriesTag = null;
+                UpdateDetails((EpisodeFile)null);
+            }
 
             var worker = new BackgroundWorker();
             worker.WorkerReportsProgress = true;
             var scanFilter = fileFormatFilter.Clone();
+            var existingScannedRows = append ? allScannedRows.ToList() : new List<EpisodeFile>();
             worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
             {
                 var backgroundWorker = (BackgroundWorker)workerSender;
@@ -4791,8 +4825,16 @@ namespace SameEpisodeDuplicateFinder
                 };
                 var result = ScanWithDetails(root, scanFilter, report, delegate { return cancelRequested; });
                 ThrowIfCancellationRequested(delegate { return cancelRequested; });
-                report("Writing duplicate candidate cache...");
-                SaveCachedScan(root, result.DuplicateRows);
+                if (append)
+                {
+                    report("Merging scan results...");
+                    result = BuildMergedScanResult(existingScannedRows, result.ScannedRows);
+                }
+                else
+                {
+                    report("Writing duplicate candidate cache...");
+                    SaveCachedScan(root, result.DuplicateRows);
+                }
                 args.Result = result;
             };
             worker.ProgressChanged += delegate(object workerSender, ProgressChangedEventArgs args)
@@ -4815,9 +4857,15 @@ namespace SameEpisodeDuplicateFinder
                     }
 
                     var result = (ScanResult)args.Result;
+                    if (append)
+                    {
+                        rootBox.Text = BuildSessionRootLabel(rootBox.Text, root);
+                    }
                     LoadRowsIntoUi(result.DuplicateRows, result.ScannedRows);
 
-                    UpdateSummary(result.Summary);
+                    UpdateSummary(append
+                        ? string.Format("Added scan location. Combined session: {0:N0} scanned | {1:N0} duplicate candidates | {2:N0} duplicate groups.", result.ScannedRows.Count, result.DuplicateRows.Count, result.DuplicateGroups)
+                        : result.Summary);
                 }
                 catch (Exception ex)
                 {
@@ -5569,6 +5617,55 @@ namespace SameEpisodeDuplicateFinder
                 CacheHits = cacheHits,
                 DuplicateGroups = duplicateKeys.Count
             };
+        }
+
+        internal static ScanResult BuildMergedScanResult(IEnumerable<EpisodeFile> existingRows, IEnumerable<EpisodeFile> addedRows)
+        {
+            var merged = (existingRows ?? Enumerable.Empty<EpisodeFile>())
+                .Concat(addedRows ?? Enumerable.Empty<EpisodeFile>())
+                .Where(x => x != null)
+                .Where(x => !string.IsNullOrWhiteSpace(x.Path))
+                .GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Episode, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.FileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var duplicateKeys = new HashSet<string>(
+                merged.GroupBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+                      .Where(g => g.Count() > 1)
+                      .Select(g => g.Key),
+                StringComparer.OrdinalIgnoreCase);
+
+            var duplicates = merged.Where(x => duplicateKeys.Contains(x.Key))
+                                   .OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
+                                   .ThenBy(x => x.Episode, StringComparer.OrdinalIgnoreCase)
+                                   .ThenBy(x => x.FileName, StringComparer.OrdinalIgnoreCase)
+                                   .ToList();
+
+            return new ScanResult
+            {
+                DuplicateRows = duplicates,
+                ScannedRows = merged,
+                VisitedFiles = merged.Count,
+                IgnoredFiles = 0,
+                CacheHits = 0,
+                DuplicateGroups = duplicateKeys.Count
+            };
+        }
+
+        private static string BuildSessionRootLabel(string current, string added)
+        {
+            var addedLabel = string.IsNullOrWhiteSpace(added) ? "" : added.Trim();
+            if (string.IsNullOrWhiteSpace(current) || string.Equals(current, "No folder scanned", StringComparison.OrdinalIgnoreCase))
+            {
+                return addedLabel;
+            }
+
+            return current.IndexOf(" + ", StringComparison.Ordinal) >= 0
+                ? current + " + " + addedLabel
+                : current + " + " + addedLabel;
         }
 
         private static void ReportProgress(Action<string> progress, string message)
