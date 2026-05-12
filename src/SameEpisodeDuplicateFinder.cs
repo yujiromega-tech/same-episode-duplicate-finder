@@ -7,11 +7,13 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
+using System.Xml;
 using Microsoft.VisualBasic.FileIO;
 
 namespace SameEpisodeDuplicateFinder
@@ -103,7 +105,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 try
                 {
-                    using (var webClient = new WebClient())
+                    using (var webClient = new HttpTimeoutWebClient())
                     {
                         webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
                         var compressed = webClient.DownloadData(url);
@@ -542,7 +544,7 @@ namespace SameEpisodeDuplicateFinder
                 Encode(AniDbApiClient.Name),
                 AniDbApiClient.Version,
                 Encode(aniDbId));
-            using (var webClient = new WebClient())
+            using (var webClient = new HttpTimeoutWebClient())
             {
                 webClient.Encoding = Encoding.UTF8;
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
@@ -1149,6 +1151,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem viewReadyMenuItem;
         private readonly ToolStripMenuItem viewMissingEpisodesMenuItem;
         private readonly ToolStripMenuItem viewEpisodeSearchMenuItem;
+        private readonly ToolStripMenuItem viewSelectedFeedMenuItem;
         private readonly ToolStripMenuItem viewRestoreWorkspaceMenuItem;
         private readonly ToolStripMenuItem viewSeriesCoversMenuItem;
         private readonly ToolStripMenuItem viewDarkModeMenuItem;
@@ -1166,11 +1169,13 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem toolsFileBotMenuItem;
         private readonly ToolStripMenuItem toolsFileFormatsMenuItem;
         private readonly ToolStripMenuItem toolsOpenMoveReportMenuItem;
+        private readonly ToolStripMenuItem toolsMonitorFoldersMenuItem;
         private readonly ToolStripMenuItem helpGuideMenuItem;
         private readonly ToolStripMenuItem helpCredentialMenuItem;
         private readonly Label statusLabel;
         private readonly TextBox activityLogBox;
         private readonly ProgressBar progressBar;
+        private readonly System.Windows.Forms.Timer monitorTimer;
         private readonly Button cancelButton;
         private readonly Label scannedChipLabel;
         private readonly Label candidatesChipLabel;
@@ -1189,9 +1194,14 @@ namespace SameEpisodeDuplicateFinder
         private readonly DataGridView deletionGrid;
         private readonly DataGridView missingEpisodesGrid;
         private readonly DataGridView episodeSearchGrid;
+        private readonly DataGridView selectedFeedGrid;
         private readonly ComboBox episodeSearchGroupBox;
         private readonly ComboBox episodeSearchResolutionBox;
         private readonly Button episodeSearchButton;
+        private readonly Button episodeSearchAddButton;
+        private readonly Button selectedFeedOpenButton;
+        private readonly Button selectedFeedRemoveButton;
+        private readonly Button selectedFeedClearButton;
         private readonly LinkLabel detailsBox;
         private readonly ContextMenuStrip candidateContextMenu;
         private readonly ToolStripMenuItem openCandidateFileItem;
@@ -1203,6 +1213,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label deletionTotalLabel;
         private readonly Label missingEpisodesTotalLabel;
         private readonly Label episodeSearchTotalLabel;
+        private readonly Label selectedFeedTotalLabel;
         private readonly TableLayoutPanel workspacePanel;
         private readonly GroupBox seriesGroup;
         private readonly GroupBox activityGroup;
@@ -1211,20 +1222,24 @@ namespace SameEpisodeDuplicateFinder
         private readonly GroupBox deletionGroup;
         private readonly GroupBox missingEpisodesGroup;
         private readonly GroupBox episodeSearchGroup;
+        private readonly GroupBox selectedFeedGroup;
         private readonly Button candidatesCloseButton;
         private readonly Button deletionCloseButton;
         private readonly Button missingEpisodesCloseButton;
         private readonly Button episodeSearchCloseButton;
+        private readonly Button selectedFeedCloseButton;
         private readonly List<EpisodeFile> allRows;
         private readonly List<EpisodeFile> allScannedRows;
         private readonly BindingList<EpisodeFile> rows;
         private readonly BindingList<EpisodeFile> deletionRows;
         private readonly BindingList<MissingEpisodeRow> missingEpisodeRows;
         private readonly BindingList<EpisodeSearchResult> episodeSearchRows;
+        private readonly BindingList<SelectedSearchFeedItem> selectedFeedRows;
         private readonly BindingSource source;
         private readonly BindingSource deletionSource;
         private readonly BindingSource missingEpisodesSource;
         private readonly BindingSource episodeSearchSource;
+        private readonly BindingSource selectedFeedSource;
         private FileFormatFilter fileFormatFilter;
         private AutoMarkThreshold autoMarkThreshold;
         private DataGridView activeGrid;
@@ -1239,7 +1254,13 @@ namespace SameEpisodeDuplicateFinder
         private bool deletionPanelCollapsed;
         private bool missingEpisodesPanelCollapsed;
         private bool episodeSearchPanelCollapsed;
+        private bool selectedFeedPanelCollapsed;
         private bool restoringColumnLayout;
+        private DateTime nextMonitorCheckUtc;
+        private TcpListener selectedFeedServer;
+        private Thread selectedFeedServerThread;
+        private volatile bool selectedFeedServerRunning;
+        private string selectedFeedUrl;
 
         public MainForm()
         {
@@ -1257,6 +1278,7 @@ namespace SameEpisodeDuplicateFinder
             deletionRows = new BindingList<EpisodeFile>();
             missingEpisodeRows = new BindingList<MissingEpisodeRow>();
             episodeSearchRows = new BindingList<EpisodeSearchResult>();
+            selectedFeedRows = new BindingList<SelectedSearchFeedItem>();
             source = new BindingSource();
             source.DataSource = rows;
             deletionSource = new BindingSource();
@@ -1265,6 +1287,11 @@ namespace SameEpisodeDuplicateFinder
             missingEpisodesSource.DataSource = missingEpisodeRows;
             episodeSearchSource = new BindingSource();
             episodeSearchSource.DataSource = episodeSearchRows;
+            selectedFeedSource = new BindingSource();
+            selectedFeedSource.DataSource = selectedFeedRows;
+            monitorTimer = new System.Windows.Forms.Timer();
+            monitorTimer.Interval = 60000;
+            monitorTimer.Tick += MonitorTimer_Tick;
             fileFormatFilter = FileFormatFilterStore.Load();
             autoMarkThreshold = AutoMarkThresholdStore.Load();
             activeReviewFilter = "All";
@@ -1318,6 +1345,9 @@ namespace SameEpisodeDuplicateFinder
             viewEpisodeSearchMenuItem = new ToolStripMenuItem("Hide Episode Search");
             viewEpisodeSearchMenuItem.ToolTipText = "Show or hide the Episode Search panel.";
             viewEpisodeSearchMenuItem.Click += ToggleEpisodeSearchButton_Click;
+            viewSelectedFeedMenuItem = new ToolStripMenuItem("Hide Selected Feed");
+            viewSelectedFeedMenuItem.ToolTipText = "Show or hide the selected RSS feed panel.";
+            viewSelectedFeedMenuItem.Click += ToggleSelectedFeedButton_Click;
             viewRestoreWorkspaceMenuItem = new ToolStripMenuItem("Restore Workspace");
             viewRestoreWorkspaceMenuItem.ToolTipText = "Show the default review panels again.";
             viewRestoreWorkspaceMenuItem.Click += RestoreWorkspaceMenuItem_Click;
@@ -1334,6 +1364,7 @@ namespace SameEpisodeDuplicateFinder
             viewMenu.DropDownItems.Add(viewReadyMenuItem);
             viewMenu.DropDownItems.Add(viewMissingEpisodesMenuItem);
             viewMenu.DropDownItems.Add(viewEpisodeSearchMenuItem);
+            viewMenu.DropDownItems.Add(viewSelectedFeedMenuItem);
             viewMenu.DropDownItems.Add(viewRestoreWorkspaceMenuItem);
             viewMenu.DropDownItems.Add(viewSeriesCoversMenuItem);
             viewMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -1345,7 +1376,7 @@ namespace SameEpisodeDuplicateFinder
             toolsClearMarksMenuItem.Enabled = false;
             toolsClearMarksMenuItem.Click += ClearMarksButton_Click;
             toolsAniDbMenuItem = new ToolStripMenuItem("Metadata Lookup");
-            toolsAniDbMenuItem.ToolTipText = "Use AniDB HTTP XML/title cache first, then TVDB and TMDB fallback where configured. No AniDB login is required.";
+            toolsAniDbMenuItem.ToolTipText = "Use the local AniDB title cache first, then TVDB and TMDB fallback where configured. No AniDB login is required.";
             toolsAniDbMenuItem.Click += AniDbButton_Click;
             toolsAniDbCoversMenuItem = new ToolStripMenuItem("Fetch Missing Covers...");
             toolsAniDbCoversMenuItem.ToolTipText = "Find missing cover art through AniDB, with TVDB and TMDB used as backup providers.";
@@ -1395,6 +1426,10 @@ namespace SameEpisodeDuplicateFinder
             toolsOpenMoveReportMenuItem.ToolTipText = "Open the CSV report from the last Move Selected Series run.";
             toolsOpenMoveReportMenuItem.Enabled = File.Exists(GetMoveReportPath());
             toolsOpenMoveReportMenuItem.Click += OpenMoveReportMenuItem_Click;
+            toolsMonitorFoldersMenuItem = new ToolStripMenuItem("Monitor Scan Roots Every 5 Days");
+            toolsMonitorFoldersMenuItem.ToolTipText = "While the app is running, periodically re-scan current roots and refresh missing episodes.";
+            toolsMonitorFoldersMenuItem.CheckOnClick = true;
+            toolsMonitorFoldersMenuItem.Click += MonitorFoldersMenuItem_Click;
             toolsMenu.DropDownItems.Add(toolsClearMarksMenuItem);
             toolsMenu.DropDownItems.Add(toolsAniDbMenuItem);
             toolsMenu.DropDownItems.Add(toolsAniDbCoversMenuItem);
@@ -1408,6 +1443,7 @@ namespace SameEpisodeDuplicateFinder
             toolsMenu.DropDownItems.Add(toolsFileBotMenuItem);
             toolsMenu.DropDownItems.Add(new ToolStripSeparator());
             toolsMenu.DropDownItems.Add(toolsFileFormatsMenuItem);
+            toolsMenu.DropDownItems.Add(toolsMonitorFoldersMenuItem);
             toolsMenu.DropDownItems.Add(toolsOpenMoveReportMenuItem);
             UpdateAutoMarkThresholdUi();
 
@@ -1454,7 +1490,7 @@ namespace SameEpisodeDuplicateFinder
             rootBox.Margin = new Padding(0, 4, 8, 4);
             rootBox.TextChanged += RootBox_TextChanged;
             toolTip.SetToolTip(rootBox, "Last scanned folder. Use File > Browse and Scan to choose a different folder.");
-            rootBox.Tag = "";
+            rootBox.Tag = new List<string>();
 
             var searchLabel = new Label();
             searchLabel.Text = "Search";
@@ -1690,7 +1726,8 @@ namespace SameEpisodeDuplicateFinder
             StyleGrid(missingEpisodesGrid);
             AddMissingEpisodeColumn("Title", "Series", 180);
             AddMissingEpisodeColumn("Scope", "Scope", 72);
-            AddMissingEpisodeColumn("MissingEpisodes", "Missing", 220);
+            AddMissingEpisodeColumn("MissingEpisodes", "Missing", 70);
+            AddMissingEpisodeColumn("SearchKey", "Search Key", 220);
             AddMissingEpisodeColumn("PresentRange", "Present Range", 110);
             AddMissingEpisodeColumn("KnownEpisodes", "Known", 70);
             AddMissingEpisodeColumn("MissingCount", "Missing Count", 92);
@@ -1712,6 +1749,7 @@ namespace SameEpisodeDuplicateFinder
             episodeSearchGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             episodeSearchGrid.MultiSelect = false;
             episodeSearchGrid.DataSource = episodeSearchSource;
+            episodeSearchGrid.SelectionChanged += EpisodeSearchGrid_SelectionChanged;
             episodeSearchGrid.CellDoubleClick += EpisodeSearchGrid_CellDoubleClick;
             StyleGrid(episodeSearchGrid);
             AddEpisodeSearchColumn("Provider", "Provider", 72);
@@ -1722,6 +1760,28 @@ namespace SameEpisodeDuplicateFinder
             AddEpisodeSearchColumn("Downloads", "Done", 62);
             AddEpisodeSearchColumn("Trusted", "Trusted", 70);
             AddEpisodeSearchColumn("Published", "Published", 120);
+
+            selectedFeedGrid = new DataGridView();
+            selectedFeedGrid.Dock = DockStyle.Fill;
+            selectedFeedGrid.AutoGenerateColumns = false;
+            selectedFeedGrid.AllowUserToAddRows = false;
+            selectedFeedGrid.AllowUserToDeleteRows = false;
+            selectedFeedGrid.AllowUserToOrderColumns = true;
+            selectedFeedGrid.ReadOnly = true;
+            selectedFeedGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            selectedFeedGrid.MultiSelect = false;
+            selectedFeedGrid.DataSource = selectedFeedSource;
+            selectedFeedGrid.SelectionChanged += SelectedFeedGrid_SelectionChanged;
+            selectedFeedGrid.CellDoubleClick += SelectedFeedGrid_CellDoubleClick;
+            StyleGrid(selectedFeedGrid);
+            AddSelectedFeedColumn("SeriesTitle", "Series", 150);
+            AddSelectedFeedColumn("MissingEpisode", "Ep", 52);
+            AddSelectedFeedColumn("Provider", "Provider", 68);
+            AddSelectedFeedColumn("Title", "Selected Result", 260);
+            AddSelectedFeedColumn("Size", "Size", 78);
+            AddSelectedFeedColumn("Seeders", "Seed", 56);
+            AddSelectedFeedColumn("Published", "Published", 110);
+            AddSelectedFeedColumn("Added", "Added", 110);
 
             episodeSearchGroupBox = new ComboBox();
             episodeSearchGroupBox.Dock = DockStyle.Fill;
@@ -1748,11 +1808,46 @@ namespace SameEpisodeDuplicateFinder
             episodeSearchButton.Click += EpisodeSearchButton_Click;
             StyleButton(episodeSearchButton, false);
 
+            episodeSearchAddButton = new Button();
+            episodeSearchAddButton.Text = "Add";
+            episodeSearchAddButton.Dock = DockStyle.Fill;
+            episodeSearchAddButton.Enabled = false;
+            episodeSearchAddButton.Click += EpisodeSearchAddButton_Click;
+            StyleButton(episodeSearchAddButton, false);
+            toolTip.SetToolTip(episodeSearchAddButton, "Add the highlighted search result to the selected RSS feed.");
+
             episodeSearchTotalLabel = new Label();
             episodeSearchTotalLabel.Dock = DockStyle.Fill;
             episodeSearchTotalLabel.TextAlign = ContentAlignment.MiddleLeft;
             episodeSearchTotalLabel.Padding = new Padding(4, 0, 0, 0);
             episodeSearchTotalLabel.Text = "Select a missing episode, then Search.";
+
+            selectedFeedTotalLabel = new Label();
+            selectedFeedTotalLabel.Dock = DockStyle.Fill;
+            selectedFeedTotalLabel.TextAlign = ContentAlignment.MiddleLeft;
+            selectedFeedTotalLabel.Padding = new Padding(4, 0, 0, 0);
+            selectedFeedTotalLabel.Text = "No selected results.";
+
+            selectedFeedOpenButton = new Button();
+            selectedFeedOpenButton.Text = "Open RSS";
+            selectedFeedOpenButton.Dock = DockStyle.Fill;
+            selectedFeedOpenButton.Enabled = false;
+            selectedFeedOpenButton.Click += SelectedFeedOpenButton_Click;
+            StyleButton(selectedFeedOpenButton, false);
+
+            selectedFeedRemoveButton = new Button();
+            selectedFeedRemoveButton.Text = "Remove";
+            selectedFeedRemoveButton.Dock = DockStyle.Fill;
+            selectedFeedRemoveButton.Enabled = false;
+            selectedFeedRemoveButton.Click += SelectedFeedRemoveButton_Click;
+            StyleButton(selectedFeedRemoveButton, false);
+
+            selectedFeedClearButton = new Button();
+            selectedFeedClearButton.Text = "Clear";
+            selectedFeedClearButton.Dock = DockStyle.Fill;
+            selectedFeedClearButton.Enabled = false;
+            selectedFeedClearButton.Click += SelectedFeedClearButton_Click;
+            StyleButton(selectedFeedClearButton, false);
 
             AddCheckColumn("Delete", "Delete", 58);
             AddTextColumn("Recommendation", "Recommended", 120);
@@ -1884,25 +1979,53 @@ namespace SameEpisodeDuplicateFinder
 
             var episodeSearchPanel = new TableLayoutPanel();
             episodeSearchPanel.Dock = DockStyle.Fill;
-            episodeSearchPanel.ColumnCount = 4;
+            episodeSearchPanel.ColumnCount = 5;
             episodeSearchPanel.RowCount = 3;
             episodeSearchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             episodeSearchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
             episodeSearchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84));
             episodeSearchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
+            episodeSearchPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
             episodeSearchPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
             episodeSearchPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
             episodeSearchPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             episodeSearchPanel.Controls.Add(episodeSearchTotalLabel, 0, 0);
-            episodeSearchPanel.SetColumnSpan(episodeSearchTotalLabel, 4);
+            episodeSearchPanel.SetColumnSpan(episodeSearchTotalLabel, 5);
             episodeSearchPanel.Controls.Add(episodeSearchGroupBox, 1, 1);
             episodeSearchPanel.Controls.Add(episodeSearchResolutionBox, 2, 1);
             episodeSearchPanel.Controls.Add(episodeSearchButton, 3, 1);
+            episodeSearchPanel.Controls.Add(episodeSearchAddButton, 4, 1);
             episodeSearchPanel.Controls.Add(episodeSearchGrid, 0, 2);
-            episodeSearchPanel.SetColumnSpan(episodeSearchGrid, 4);
+            episodeSearchPanel.SetColumnSpan(episodeSearchGrid, 5);
             episodeSearchGroup.Controls.Add(episodeSearchPanel);
             episodeSearchCloseButton = CreatePanelCloseButton("Hide the Episode Search panel.", ToggleEpisodeSearchButton_Click);
             AttachPanelCloseButton(episodeSearchGroup, episodeSearchCloseButton);
+
+            selectedFeedGroup = new GroupBox();
+            selectedFeedGroup.Text = "Selected RSS Feed";
+            selectedFeedGroup.Dock = DockStyle.Fill;
+            selectedFeedGroup.Padding = new Padding(8);
+            StyleGroupBox(selectedFeedGroup);
+
+            var selectedFeedPanel = new TableLayoutPanel();
+            selectedFeedPanel.Dock = DockStyle.Fill;
+            selectedFeedPanel.ColumnCount = 4;
+            selectedFeedPanel.RowCount = 2;
+            selectedFeedPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            selectedFeedPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 86));
+            selectedFeedPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            selectedFeedPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+            selectedFeedPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            selectedFeedPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            selectedFeedPanel.Controls.Add(selectedFeedTotalLabel, 0, 0);
+            selectedFeedPanel.Controls.Add(selectedFeedOpenButton, 1, 0);
+            selectedFeedPanel.Controls.Add(selectedFeedRemoveButton, 2, 0);
+            selectedFeedPanel.Controls.Add(selectedFeedClearButton, 3, 0);
+            selectedFeedPanel.Controls.Add(selectedFeedGrid, 0, 1);
+            selectedFeedPanel.SetColumnSpan(selectedFeedGrid, 4);
+            selectedFeedGroup.Controls.Add(selectedFeedPanel);
+            selectedFeedCloseButton = CreatePanelCloseButton("Hide the Selected RSS Feed panel.", ToggleSelectedFeedButton_Click);
+            AttachPanelCloseButton(selectedFeedGroup, selectedFeedCloseButton);
 
             activityGroup = new GroupBox();
             activityGroup.Text = "History / Alerts";
@@ -1915,13 +2038,14 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.Dock = DockStyle.Fill;
             workspacePanel.Padding = new Padding(10);
             workspacePanel.BackColor = AppBackColor;
-            workspacePanel.ColumnCount = 5;
+            workspacePanel.ColumnCount = 6;
             workspacePanel.RowCount = 2;
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17F));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
             workspacePanel.Controls.Add(seriesGroup, 0, 0);
@@ -1929,9 +2053,10 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.Controls.Add(deletionGroup, 2, 0);
             workspacePanel.Controls.Add(missingEpisodesGroup, 3, 0);
             workspacePanel.Controls.Add(episodeSearchGroup, 4, 0);
+            workspacePanel.Controls.Add(selectedFeedGroup, 5, 0);
             workspacePanel.Controls.Add(activityGroup, 0, 1);
             workspacePanel.Controls.Add(detailsGroup, 1, 1);
-            workspacePanel.SetColumnSpan(detailsGroup, 4);
+            workspacePanel.SetColumnSpan(detailsGroup, 5);
             ApplyWorkspacePanelVisibility();
 
             Controls.Add(workspacePanel);
@@ -1939,6 +2064,8 @@ namespace SameEpisodeDuplicateFinder
             Controls.Add(mainMenu);
             ApplyTheme();
             UpdateDashboard();
+            StartSelectedFeedServer();
+            SaveAndRefreshSelectedFeed();
             Shown += MainForm_Shown;
         }
 
@@ -1979,6 +2106,17 @@ namespace SameEpisodeDuplicateFinder
             column.Width = width;
             column.SortMode = DataGridViewColumnSortMode.Automatic;
             episodeSearchGrid.Columns.Add(column);
+        }
+
+        private void AddSelectedFeedColumn(string propertyName, string headerText, int width)
+        {
+            var column = new DataGridViewTextBoxColumn();
+            column.DataPropertyName = propertyName;
+            column.HeaderText = headerText;
+            column.Name = propertyName;
+            column.Width = width;
+            column.SortMode = DataGridViewColumnSortMode.Automatic;
+            selectedFeedGrid.Columns.Add(column);
         }
 
         private void AddReviewTab(string text, string tag)
@@ -2166,14 +2304,6 @@ namespace SameEpisodeDuplicateFinder
             targetGrid.Refresh();
         }
 
-        private void StyleTree(TreeView tree)
-        {
-            tree.BorderStyle = BorderStyle.None;
-            tree.BackColor = PanelBackColor;
-            tree.ForeColor = PrimaryTextColor;
-            tree.LineColor = BorderColor;
-        }
-
         private void StyleSeriesListView()
         {
             if (seriesListView == null)
@@ -2251,16 +2381,23 @@ namespace SameEpisodeDuplicateFinder
             viewEpisodeSearchMenuItem.Text = episodeSearchPanelCollapsed ? "Show Episode Search" : "Hide Episode Search";
         }
 
+        private void UpdateSelectedFeedToggleText()
+        {
+            viewSelectedFeedMenuItem.Text = selectedFeedPanelCollapsed ? "Show Selected Feed" : "Hide Selected Feed";
+        }
+
         private void ApplyWorkspacePanelVisibility()
         {
             var candidatesVisible = !candidatesPanelCollapsed;
             var deletionVisible = candidatesVisible && !deletionPanelCollapsed;
             var missingEpisodesVisible = !missingEpisodesPanelCollapsed;
             var episodeSearchVisible = !episodeSearchPanelCollapsed;
+            var selectedFeedVisible = !selectedFeedPanelCollapsed;
             candidatesGroup.Visible = candidatesVisible;
             deletionGroup.Visible = deletionVisible;
             missingEpisodesGroup.Visible = missingEpisodesVisible;
             episodeSearchGroup.Visible = episodeSearchVisible;
+            selectedFeedGroup.Visible = selectedFeedVisible;
 
             var visiblePanelCount = 1;
             if (candidatesVisible)
@@ -2279,6 +2416,10 @@ namespace SameEpisodeDuplicateFinder
             {
                 visiblePanelCount++;
             }
+            if (selectedFeedVisible)
+            {
+                visiblePanelCount++;
+            }
 
             var visibleWidth = 100F / visiblePanelCount;
             workspacePanel.ColumnStyles[0].Width = visibleWidth;
@@ -2286,10 +2427,12 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.ColumnStyles[2].Width = deletionVisible ? visibleWidth : 0F;
             workspacePanel.ColumnStyles[3].Width = missingEpisodesVisible ? visibleWidth : 0F;
             workspacePanel.ColumnStyles[4].Width = episodeSearchVisible ? visibleWidth : 0F;
+            workspacePanel.ColumnStyles[5].Width = selectedFeedVisible ? visibleWidth : 0F;
             UpdateCandidatesToggleText();
             UpdateReadyToggleText();
             UpdateMissingEpisodesToggleText();
             UpdateEpisodeSearchToggleText();
+            UpdateSelectedFeedToggleText();
         }
 
         private void UpdateWorkspaceMenuState()
@@ -2298,10 +2441,12 @@ namespace SameEpisodeDuplicateFinder
             viewReadyMenuItem.Checked = !deletionPanelCollapsed && !candidatesPanelCollapsed;
             viewMissingEpisodesMenuItem.Checked = !missingEpisodesPanelCollapsed;
             viewEpisodeSearchMenuItem.Checked = !episodeSearchPanelCollapsed;
+            viewSelectedFeedMenuItem.Checked = !selectedFeedPanelCollapsed;
             viewReadyMenuItem.Enabled = !busyState && !candidatesPanelCollapsed;
             viewMissingEpisodesMenuItem.Enabled = !busyState;
             viewEpisodeSearchMenuItem.Enabled = !busyState;
-            viewRestoreWorkspaceMenuItem.Enabled = !busyState && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed || episodeSearchPanelCollapsed);
+            viewSelectedFeedMenuItem.Enabled = !busyState;
+            viewRestoreWorkspaceMenuItem.Enabled = !busyState && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed || episodeSearchPanelCollapsed || selectedFeedPanelCollapsed);
         }
 
         private void RestoreWorkspaceMenuItem_Click(object sender, EventArgs e)
@@ -2310,6 +2455,7 @@ namespace SameEpisodeDuplicateFinder
             deletionPanelCollapsed = false;
             missingEpisodesPanelCollapsed = false;
             episodeSearchPanelCollapsed = false;
+            selectedFeedPanelCollapsed = false;
             ApplyWorkspacePanelVisibility();
         }
         private void ToggleDarkModeMenuItem_Click(object sender, EventArgs e)
@@ -2356,6 +2502,7 @@ namespace SameEpisodeDuplicateFinder
             StyleGrid(deletionGrid);
             StyleGrid(missingEpisodesGrid);
             StyleGrid(episodeSearchGrid);
+            StyleGrid(selectedFeedGrid);
             StyleSeriesListView();
             StyleSeriesCoverView();
             candidateContextMenu.BackColor = PanelBackColor;
@@ -2378,6 +2525,7 @@ namespace SameEpisodeDuplicateFinder
             deletionGrid.Refresh();
             missingEpisodesGrid.Refresh();
             episodeSearchGrid.Refresh();
+            selectedFeedGrid.Refresh();
         }
 
         private void ApplyMenuTheme(ToolStripItemCollection items)
@@ -2430,10 +2578,6 @@ namespace SameEpisodeDuplicateFinder
                 {
                     StyleButton(button, false);
                 }
-            }
-            else if (control is TreeView)
-            {
-                StyleTree((TreeView)control);
             }
             else if (control is ListView)
             {
@@ -2606,6 +2750,23 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            selectedFeedServerRunning = false;
+            try
+            {
+                if (selectedFeedServer != null)
+                {
+                    selectedFeedServer.Stop();
+                }
+            }
+            catch
+            {
+            }
+
+            base.OnFormClosing(e);
+        }
+
         private void HelpGuideMenuItem_Click(object sender, EventArgs e)
         {
             ShowBetaGuide();
@@ -2646,10 +2807,12 @@ namespace SameEpisodeDuplicateFinder
             using (var dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "Choose the folder to scan";
-                dialog.SelectedPath = Directory.Exists(rootBox.Text) ? rootBox.Text : "";
+                var primaryRoot = GetPrimarySessionRoot();
+                dialog.SelectedPath = Directory.Exists(primaryRoot) ? primaryRoot : "";
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
                     rootBox.Text = dialog.SelectedPath;
+                    SetSessionRoots(new[] { dialog.SelectedPath });
                     StartScan(dialog.SelectedPath, false);
                 }
             }
@@ -2666,7 +2829,8 @@ namespace SameEpisodeDuplicateFinder
             using (var dialog = new FolderBrowserDialog())
             {
                 dialog.Description = "Choose another folder or drive to add to the current scan";
-                dialog.SelectedPath = Directory.Exists(rootBox.Text) ? rootBox.Text : "";
+                var primaryRoot = GetPrimarySessionRoot();
+                dialog.SelectedPath = Directory.Exists(primaryRoot) ? primaryRoot : "";
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
                     StartScan(dialog.SelectedPath, true);
@@ -2986,6 +3150,19 @@ namespace SameEpisodeDuplicateFinder
             RestoreFirstDisplayedRowIndex(deletionGrid, deletionScrollRow);
         }
 
+        private void RefreshReviewGrids()
+        {
+            RefreshVisibleRows();
+            deletionGrid.Refresh();
+            grid.Refresh();
+        }
+
+        private void RefreshDeletionView()
+        {
+            RefreshVisibleRows();
+            deletionGrid.Refresh();
+        }
+
         private static int GetFirstDisplayedRowIndex(DataGridView targetGrid)
         {
             if (targetGrid == null || targetGrid.Rows.Count == 0)
@@ -3063,7 +3240,8 @@ namespace SameEpisodeDuplicateFinder
         }
         private string GetCacheStatusSummary()
         {
-            if (string.IsNullOrWhiteSpace(rootBox.Text) || !File.Exists(GetCachePath()))
+            var root = GetPrimarySessionRoot();
+            if (string.IsNullOrWhiteSpace(root) || !File.Exists(GetCachePath()))
             {
                 return "Cache none";
             }
@@ -3071,7 +3249,7 @@ namespace SameEpisodeDuplicateFinder
             var cachedRoot = ReadCacheRoot(GetCachePath());
             try
             {
-                return string.Equals(NormalizeRoot(cachedRoot), NormalizeRoot(rootBox.Text), StringComparison.OrdinalIgnoreCase)
+                return string.Equals(NormalizeRoot(cachedRoot), NormalizeRoot(root), StringComparison.OrdinalIgnoreCase)
                     ? "Cache current"
                     : "Cache other";
             }
@@ -3314,15 +3492,15 @@ namespace SameEpisodeDuplicateFinder
 
         private void SeriesListView_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
         {
-            if (!e.IsSelected || e.Item == null)
-            {
-                return;
-            }
-
-            ApplySeriesFilter(e.Item.Tag);
+            SeriesItemSelectionChanged(e);
         }
 
         private void SeriesCoverView_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
+        {
+            SeriesItemSelectionChanged(e);
+        }
+
+        private void SeriesItemSelectionChanged(ListViewItemSelectionChangedEventArgs e)
         {
             if (!e.IsSelected || e.Item == null)
             {
@@ -3371,12 +3549,70 @@ namespace SameEpisodeDuplicateFinder
             if (row != null)
             {
                 UpdateDetails(row);
+                AddSelectedFeedItem(row);
             }
+        }
+
+        private void EpisodeSearchGrid_SelectionChanged(object sender, EventArgs e)
+        {
+            episodeSearchAddButton.Enabled = !busyState && GetSelectedEpisodeSearchResult() != null;
         }
 
         private void EpisodeSearchButton_Click(object sender, EventArgs e)
         {
             RunEpisodeSearch(GetSelectedMissingEpisodeRow());
+        }
+
+        private void EpisodeSearchAddButton_Click(object sender, EventArgs e)
+        {
+            AddSelectedFeedItem(GetSelectedEpisodeSearchResult());
+        }
+
+        private void SelectedFeedGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= selectedFeedGrid.Rows.Count)
+            {
+                return;
+            }
+
+            var row = selectedFeedGrid.Rows[e.RowIndex].DataBoundItem as SelectedSearchFeedItem;
+            if (row != null && !string.IsNullOrWhiteSpace(row.MagnetLink))
+            {
+                OpenShellPath(row.MagnetLink);
+            }
+        }
+
+        private void SelectedFeedGrid_SelectionChanged(object sender, EventArgs e)
+        {
+            selectedFeedRemoveButton.Enabled = !busyState && GetSelectedFeedItem() != null;
+        }
+
+        private void SelectedFeedOpenButton_Click(object sender, EventArgs e)
+        {
+            OpenShellPath(string.IsNullOrWhiteSpace(selectedFeedUrl) ? GetSelectedFeedPath() : selectedFeedUrl);
+        }
+
+        private void SelectedFeedRemoveButton_Click(object sender, EventArgs e)
+        {
+            var item = GetSelectedFeedItem();
+            if (item == null)
+            {
+                return;
+            }
+
+            selectedFeedRows.Remove(item);
+            SaveAndRefreshSelectedFeed();
+        }
+
+        private void SelectedFeedClearButton_Click(object sender, EventArgs e)
+        {
+            if (selectedFeedRows.Count == 0)
+            {
+                return;
+            }
+
+            selectedFeedRows.Clear();
+            SaveAndRefreshSelectedFeed();
         }
 
         private void DetailsBox_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
@@ -3396,6 +3632,26 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return missingEpisodesGrid.CurrentRow.DataBoundItem as MissingEpisodeRow;
+        }
+
+        private EpisodeSearchResult GetSelectedEpisodeSearchResult()
+        {
+            if (episodeSearchGrid == null || episodeSearchGrid.CurrentRow == null)
+            {
+                return null;
+            }
+
+            return episodeSearchGrid.CurrentRow.DataBoundItem as EpisodeSearchResult;
+        }
+
+        private SelectedSearchFeedItem GetSelectedFeedItem()
+        {
+            if (selectedFeedGrid == null || selectedFeedGrid.CurrentRow == null)
+            {
+                return null;
+            }
+
+            return selectedFeedGrid.CurrentRow.DataBoundItem as SelectedSearchFeedItem;
         }
 
         private void PopulateEpisodeSearchFilters(MissingEpisodeRow row)
@@ -3516,9 +3772,66 @@ namespace SameEpisodeDuplicateFinder
                 finally
                 {
                     SetBusy(false, statusLabel.Text);
+                    episodeSearchAddButton.Enabled = GetSelectedEpisodeSearchResult() != null;
                 }
             };
             worker.RunWorkerAsync();
+        }
+
+        private void AddSelectedFeedItem(EpisodeSearchResult result)
+        {
+            if (result == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.MagnetLink) && string.IsNullOrWhiteSpace(result.Link))
+            {
+                MessageBox.Show(this, "That search result does not include a link to add.", "Selected Feed", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var missing = GetSelectedMissingEpisodeRow();
+            var search = MissingEpisodeAnalyzer.ToSearchMissingEpisode(missing);
+            var key = !string.IsNullOrWhiteSpace(result.MagnetLink) ? result.MagnetLink : result.Link;
+            var existing = selectedFeedRows.FirstOrDefault(x =>
+                string.Equals(!string.IsNullOrWhiteSpace(x.MagnetLink) ? x.MagnetLink : x.Link, key, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                ShowSelectedFeedPanel();
+                selectedFeedGrid.ClearSelection();
+                var index = selectedFeedRows.IndexOf(existing);
+                if (index >= 0 && index < selectedFeedGrid.Rows.Count)
+                {
+                    selectedFeedGrid.Rows[index].Selected = true;
+                    selectedFeedGrid.CurrentCell = selectedFeedGrid.Rows[index].Cells[0];
+                }
+                return;
+            }
+
+            selectedFeedRows.Add(new SelectedSearchFeedItem
+            {
+                SeriesTitle = missing == null ? "" : missing.Title,
+                MissingEpisode = missing == null ? "" : missing.MissingEpisodes,
+                SearchQuery = search == null ? "" : search.SearchQuery,
+                Provider = result.Provider,
+                Title = result.Title,
+                Size = result.Size,
+                Seeders = result.Seeders,
+                Published = result.Published,
+                Link = result.Link,
+                MagnetLink = result.MagnetLink,
+                AddedUtc = DateTime.UtcNow
+            });
+
+            ShowSelectedFeedPanel();
+            SaveAndRefreshSelectedFeed();
+        }
+
+        private void ShowSelectedFeedPanel()
+        {
+            selectedFeedPanelCollapsed = false;
+            ApplyWorkspacePanelVisibility();
         }
 
         private void ApplySeriesFilter(object tag)
@@ -3647,11 +3960,12 @@ namespace SameEpisodeDuplicateFinder
         private string FindSeriesCoverPath(IEnumerable<EpisodeFile> files)
         {
             var root = "";
-            if (!string.IsNullOrWhiteSpace(rootBox.Text))
+            var primaryRoot = GetPrimarySessionRoot();
+            if (!string.IsNullOrWhiteSpace(primaryRoot))
             {
                 try
                 {
-                    root = Path.GetFullPath(rootBox.Text.Trim()).TrimEnd('\\');
+                    root = Path.GetFullPath(primaryRoot.Trim()).TrimEnd('\\');
                 }
                 catch
                 {
@@ -3855,10 +4169,10 @@ namespace SameEpisodeDuplicateFinder
                     ShowOutputDialog("FileBot Output", Convert.ToString(args.Result));
                     UpdateSummary("FileBot finished.");
                     if (!string.Equals(settings.Action, "test", StringComparison.OrdinalIgnoreCase) &&
-                        !string.IsNullOrWhiteSpace(rootBox.Text) &&
-                        Directory.Exists(rootBox.Text.Trim()))
+                        !string.IsNullOrWhiteSpace(GetPrimarySessionRoot()) &&
+                        Directory.Exists(GetPrimarySessionRoot().Trim()))
                     {
-                        StartScan(rootBox.Text.Trim(), false);
+                        StartScan(GetPrimarySessionRoot().Trim(), false);
                     }
                 }
                 catch (Exception ex)
@@ -4324,14 +4638,11 @@ namespace SameEpisodeDuplicateFinder
                     var reportRows = (List<ActionPreviewRow>)result[3];
                     SaveMoveReport(reportRows);
 
-                    RefreshVisibleRows();
-                    deletionGrid.Refresh();
-                    grid.Refresh();
+                    RefreshReviewGrids();
                     PopulateSeriesPanel();
-                    if (!string.IsNullOrWhiteSpace(rootBox.Text))
+                    if (CanWriteSingleRootCache())
                     {
-                        SaveCachedScan(rootBox.Text.Trim(), allRows);
-                        SaveParseCache(rootBox.Text.Trim(), allScannedRows.Count > 0 ? allScannedRows : allRows);
+                        SaveCurrentSessionCache();
                     }
 
                     UpdateSummary(string.Format("Moved {0:N0} file(s) to series folder(s). Skipped {1:N0}. Move report saved.", moved, skipped));
@@ -4447,7 +4758,7 @@ namespace SameEpisodeDuplicateFinder
 
         private string GetSeriesMoveBaseFolder(IEnumerable<EpisodeFile> selectedSeeds, IEnumerable<EpisodeFile> selectedRows)
         {
-            var root = rootBox.Text == null ? "" : rootBox.Text.Trim();
+            var root = GetPrimarySessionRoot();
             if (!string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
             {
                 return Path.GetFullPath(root);
@@ -4736,6 +5047,102 @@ namespace SameEpisodeDuplicateFinder
             return value.Substring(0, left) + "..." + value.Substring(value.Length - right);
         }
 
+        private void MonitorFoldersMenuItem_Click(object sender, EventArgs e)
+        {
+            if (toolsMonitorFoldersMenuItem.Checked)
+            {
+                var roots = GetSessionRoots().Where(Directory.Exists).ToList();
+                if (roots.Count == 0)
+                {
+                    toolsMonitorFoldersMenuItem.Checked = false;
+                    MessageBox.Show(this, "Scan or add a folder before enabling monitoring.", "Monitor Scan Roots", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                nextMonitorCheckUtc = DateTime.UtcNow.AddDays(5);
+                monitorTimer.Start();
+                UpdateActivity("Monitoring enabled. Next folder check: " + nextMonitorCheckUtc.ToLocalTime().ToString("g"), true);
+            }
+            else
+            {
+                monitorTimer.Stop();
+                UpdateActivity("Monitoring disabled.", true);
+            }
+        }
+
+        private void MonitorTimer_Tick(object sender, EventArgs e)
+        {
+            if (!toolsMonitorFoldersMenuItem.Checked || busyState || DateTime.UtcNow < nextMonitorCheckUtc)
+            {
+                return;
+            }
+
+            nextMonitorCheckUtc = DateTime.UtcNow.AddDays(5);
+            StartMonitorScan();
+        }
+
+        private void StartMonitorScan()
+        {
+            var roots = GetSessionRoots().Where(Directory.Exists).ToList();
+            if (roots.Count == 0)
+            {
+                toolsMonitorFoldersMenuItem.Checked = false;
+                monitorTimer.Stop();
+                UpdateActivity("Monitoring stopped because no scan roots are available.", true);
+                return;
+            }
+
+            SetBusy(true, "Monitoring scan roots...");
+            var worker = new BackgroundWorker();
+            var scanFilter = fileFormatFilter.Clone();
+            worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
+            {
+                var combined = new List<EpisodeFile>();
+                foreach (var root in roots)
+                {
+                    ThrowIfCancellationRequested(delegate { return cancelRequested; });
+                    combined.AddRange(ScanWithDetails(root, scanFilter, null, delegate { return cancelRequested; }).ScannedRows);
+                }
+
+                args.Result = BuildMergedScanResult(new List<EpisodeFile>(), combined);
+            };
+            worker.RunWorkerCompleted += delegate(object workerSender, RunWorkerCompletedEventArgs args)
+            {
+                try
+                {
+                    if (args.Error is OperationCanceledException)
+                    {
+                        UpdateActivity("Monitoring scan canceled.", true);
+                        return;
+                    }
+
+                    if (args.Error != null)
+                    {
+                        throw args.Error;
+                    }
+
+                    var result = (ScanResult)args.Result;
+                    LoadRowsIntoUi(result.DuplicateRows, result.ScannedRows);
+                    var missingCount = missingEpisodeRows.Count;
+                    UpdateSummary(string.Format("Monitor check complete: {0:N0} scanned | {1:N0} missing episode row(s). Next check: {2}", result.ScannedRows.Count, missingCount, nextMonitorCheckUtc.ToLocalTime().ToString("g")));
+                    if (missingCount > 0)
+                    {
+                        MessageBox.Show(this, string.Format("Monitor check found {0:N0} missing episode row(s).", missingCount), "Missing Episodes", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogException("Monitor scan failed", ex);
+                    UpdateActivity("Monitor scan failed: " + ex.Message, true);
+                }
+                finally
+                {
+                    SetBusy(false, statusLabel.Text);
+                }
+            };
+            worker.RunWorkerAsync();
+        }
+
         private void ToggleCandidatesButton_Click(object sender, EventArgs e)
         {
             candidatesPanelCollapsed = !candidatesPanelCollapsed;
@@ -4764,9 +5171,15 @@ namespace SameEpisodeDuplicateFinder
             ApplyWorkspacePanelVisibility();
         }
 
+        private void ToggleSelectedFeedButton_Click(object sender, EventArgs e)
+        {
+            selectedFeedPanelCollapsed = !selectedFeedPanelCollapsed;
+            ApplyWorkspacePanelVisibility();
+        }
+
         private void ScanButton_Click(object sender, EventArgs e)
         {
-            StartScan(rootBox.Text.Trim(), false);
+            StartScan(GetPrimarySessionRoot().Trim(), false);
         }
 
         private void FileFormatsMenuItem_Click(object sender, EventArgs e)
@@ -4794,6 +5207,12 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            if (!append)
+            {
+                SetSessionRoots(new[] { root });
+                rootBox.Text = root;
+            }
+
             SetBusy(true, append ? "Preparing additional scan..." : "Preparing scan...");
             if (!append)
             {
@@ -4805,6 +5224,8 @@ namespace SameEpisodeDuplicateFinder
                 allScannedRows.Clear();
                 missingEpisodeRows.Clear();
                 episodeSearchRows.Clear();
+                selectedFeedRows.Clear();
+                SaveAndRefreshSelectedFeed();
                 seriesListView.Items.Clear();
                 seriesCoverView.Items.Clear();
                 seriesCoverImages.Images.Clear();
@@ -4859,7 +5280,8 @@ namespace SameEpisodeDuplicateFinder
                     var result = (ScanResult)args.Result;
                     if (append)
                     {
-                        rootBox.Text = BuildSessionRootLabel(rootBox.Text, root);
+                        AddSessionRoot(root);
+                        rootBox.Text = BuildSessionRootLabel(GetSessionRoots());
                     }
                     LoadRowsIntoUi(result.DuplicateRows, result.ScannedRows);
 
@@ -4883,7 +5305,7 @@ namespace SameEpisodeDuplicateFinder
 
         private void LoadSavedButton_Click(object sender, EventArgs e)
         {
-            var root = rootBox.Text.Trim();
+            var root = GetPrimarySessionRoot().Trim();
             if (string.IsNullOrWhiteSpace(root) || string.Equals(root, "No folder scanned", StringComparison.OrdinalIgnoreCase) || !Directory.Exists(root))
             {
                 var cachedRoot = ReadCacheRoot(GetCachePath());
@@ -4891,6 +5313,7 @@ namespace SameEpisodeDuplicateFinder
                 {
                     root = cachedRoot;
                     rootBox.Text = cachedRoot;
+                    SetSessionRoots(new[] { cachedRoot });
                 }
             }
 
@@ -4934,7 +5357,7 @@ namespace SameEpisodeDuplicateFinder
 
             var confirm = MessageBox.Show(
                 this,
-                string.Format("Fetch poster art for {0:N0} series with missing local covers?\r\n\r\nAniDB will be tried first; TVDB and TMDB will be used as backups when configured. Images will be saved as folder.jpg beside the first loaded file for each series.", missing.Count),
+                string.Format("Fetch poster art for {0:N0} series with missing local covers?\r\n\r\nThis can make one or more provider requests per series. AniDB will be tried first at a throttled pace; TVDB and TMDB will be used as backups when configured. Images will be saved as folder.jpg beside the first loaded file for each series.", missing.Count),
                 "Missing Covers",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -4966,6 +5389,7 @@ namespace SameEpisodeDuplicateFinder
                         if (string.IsNullOrWhiteSpace(targetFolder))
                         {
                             skipped++;
+                            failures.Add(group.Key + ": no local folder was available to save folder.jpg.");
                         }
                         else if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                         {
@@ -4975,7 +5399,8 @@ namespace SameEpisodeDuplicateFinder
                         else
                         {
                             string fallbackMessage;
-                            if (TryDownloadFallbackCover(group.Key, Path.Combine(targetFolder, "folder.jpg"), out fallbackMessage))
+                            var targetPath = Path.Combine(targetFolder, "folder.jpg");
+                            if (TryDownloadFallbackCover(group.Key, targetPath, out fallbackMessage))
                             {
                                 saved++;
                             }
@@ -5086,17 +5511,7 @@ namespace SameEpisodeDuplicateFinder
             }
             else
             {
-                var candidates = AniDbTitleIndex.FindCandidates(title, "", 1);
-                if (candidates.Count == 0)
-                {
-                    var relaxedTitle = BuildAniDbCoverSearchTitle(title);
-                    if (!string.Equals(relaxedTitle, title, StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidates = AniDbTitleIndex.FindCandidates(relaxedTitle, "", 1);
-                    }
-                }
-
-                var candidate = candidates.FirstOrDefault();
+                var candidate = FindAniDbCandidates(title, "", 1).FirstOrDefault();
                 if (candidate == null)
                 {
                     match.Error = "No AniDB match";
@@ -5129,21 +5544,7 @@ namespace SameEpisodeDuplicateFinder
 
             try
             {
-                var found = AniDbTitleIndex.FindCandidates(queryTitle, targetFolder, 8);
-                if (found.Count == 0)
-                {
-                    var relaxedTitle = BuildAniDbCoverSearchTitle(queryTitle);
-                    if (!string.Equals(relaxedTitle, queryTitle, StringComparison.OrdinalIgnoreCase))
-                    {
-                        found = AniDbTitleIndex.FindCandidates(relaxedTitle, targetFolder, 8);
-                        foreach (var candidate in found)
-                        {
-                            candidate.QueryTitle = queryTitle;
-                        }
-                    }
-                }
-
-                candidates.AddRange(found);
+                candidates.AddRange(FindAniDbCandidates(queryTitle, targetFolder, 8));
             }
             catch (Exception ex)
             {
@@ -5257,9 +5658,7 @@ namespace SameEpisodeDuplicateFinder
                     var failures = (List<string>)result[2];
                     PopulateSeriesPanel();
                     ComputeReviewRecommendations(false);
-                    RefreshVisibleRows();
-                    grid.Refresh();
-                    deletionGrid.Refresh();
+                    RefreshReviewGrids();
                     UpdateSummary(string.Format("Manual AniDB cover fetch complete. Saved {0:N0}; skipped {1:N0}.", saved, skipped));
                     if (failures.Count > 0)
                     {
@@ -5288,7 +5687,7 @@ namespace SameEpisodeDuplicateFinder
             }
 
             var url = "https://cdn-eu.anidb.net/images/main/" + Uri.EscapeDataString(pictureFile);
-            using (var webClient = new WebClient())
+            using (var webClient = new HttpTimeoutWebClient())
             {
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
                 webClient.DownloadFile(url, targetPath);
@@ -5399,7 +5798,7 @@ namespace SameEpisodeDuplicateFinder
                     {
                         try
                         {
-                            worker.ReportProgress(0, string.Format("AniDB HTTP lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                            worker.ReportProgress(0, string.Format("AniDB title-cache lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
                             match = LookupAniDbMetadata(title);
                         }
                         catch (Exception ex)
@@ -5427,7 +5826,7 @@ namespace SameEpisodeDuplicateFinder
                     matches[title] = match;
                     if (i + 1 < titles.Count)
                     {
-                        Thread.Sleep(match.Found && IsAniDbHttpId(match.AniDbId) ? 2200 : 1200);
+                        Thread.Sleep(match.Found && IsAniDbHttpId(match.AniDbId) ? 250 : 1200);
                     }
                 }
 
@@ -5443,7 +5842,7 @@ namespace SameEpisodeDuplicateFinder
                 {
                     if (args.Error is OperationCanceledException)
                     {
-                        UpdateSummary("AniDB lookup canceled.");
+                        UpdateSummary("Metadata lookup canceled.");
                         return;
                     }
 
@@ -5480,23 +5879,37 @@ namespace SameEpisodeDuplicateFinder
 
         private AniDbAnimeResult LookupAniDbMetadata(string title)
         {
-            var candidates = AniDbTitleIndex.FindCandidates(title, "", 1);
-            if (candidates.Count == 0)
-            {
-                var relaxedTitle = BuildAniDbCoverSearchTitle(title);
-                if (!string.Equals(relaxedTitle, title, StringComparison.OrdinalIgnoreCase))
-                {
-                    candidates = AniDbTitleIndex.FindCandidates(relaxedTitle, "", 1);
-                }
-            }
-
-            var candidate = candidates.FirstOrDefault();
+            var candidate = FindAniDbCandidates(title, "", 1).FirstOrDefault();
             if (candidate == null)
             {
                 return new AniDbAnimeResult { QueryTitle = title, Error = "No AniDB match" };
             }
 
-            return AniDbClient.LookupAnimeById(candidate.AniDbId, title, candidate.Title);
+            return new AniDbAnimeResult
+            {
+                AniDbId = candidate.AniDbId,
+                QueryTitle = title,
+                Title = candidate.Title
+            };
+        }
+
+        private static List<AniDbTitleCandidate> FindAniDbCandidates(string title, string targetFolder, int maxResults)
+        {
+            var candidates = AniDbTitleIndex.FindCandidates(title, targetFolder, maxResults);
+            if (candidates.Count == 0)
+            {
+                var relaxedTitle = BuildAniDbCoverSearchTitle(title);
+                if (!string.Equals(relaxedTitle, title, StringComparison.OrdinalIgnoreCase))
+                {
+                    candidates = AniDbTitleIndex.FindCandidates(relaxedTitle, targetFolder, maxResults);
+                    foreach (var candidate in candidates)
+                    {
+                        candidate.QueryTitle = title;
+                    }
+                }
+            }
+
+            return candidates;
         }
 
         private void ApplyAniDbMatches(Dictionary<string, AniDbAnimeResult> matches)
@@ -5514,20 +5927,12 @@ namespace SameEpisodeDuplicateFinder
                 row.AniDbYear = match.Year;
             }
 
-            RefreshVisibleRows();
-            deletionGrid.Refresh();
-            grid.Refresh();
+            RefreshReviewGrids();
             PopulateSeriesPanel();
-            if (!string.IsNullOrWhiteSpace(rootBox.Text))
+            if (CanWriteSingleRootCache())
             {
-                SaveCachedScan(rootBox.Text.Trim(), allRows);
-                SaveParseCache(rootBox.Text.Trim(), allScannedRows.Count > 0 ? allScannedRows : allRows);
+                SaveCurrentSessionCache();
             }
-        }
-
-        private static List<EpisodeFile> Scan(string root, FileFormatFilter filter)
-        {
-            return ScanWithDetails(root, filter, null, null).DuplicateRows;
         }
 
         private static ScanResult ScanWithDetails(string root, FileFormatFilter filter, Action<string> progress, Func<bool> shouldCancel)
@@ -5563,7 +5968,7 @@ namespace SameEpisodeDuplicateFinder
                     ignored++;
                     if (visited % 250 == 0)
                     {
-                        ReportProgress(progress, string.Format("Scanning files: {0:N0} checked | {1:N0} accepted | {2:N0} cached | {3:N0} ignored", visited, parsed.Count, cacheHits, ignored), ref scanProgressUtc, 500);
+                        ReportScanProgress(progress, visited, parsed.Count, cacheHits, ignored, ref scanProgressUtc);
                     }
                     continue;
                 }
@@ -5580,7 +5985,7 @@ namespace SameEpisodeDuplicateFinder
                     cacheHits++;
                     if (visited % 250 == 0)
                     {
-                        ReportProgress(progress, string.Format("Scanning files: {0:N0} checked | {1:N0} accepted | {2:N0} cached | {3:N0} ignored", visited, parsed.Count, cacheHits, ignored), ref scanProgressUtc, 500);
+                        ReportScanProgress(progress, visited, parsed.Count, cacheHits, ignored, ref scanProgressUtc);
                     }
                     continue;
                 }
@@ -5592,7 +5997,7 @@ namespace SameEpisodeDuplicateFinder
 
                 if (visited % 250 == 0)
                 {
-                    ReportProgress(progress, string.Format("Scanning files: {0:N0} checked | {1:N0} accepted | {2:N0} cached | {3:N0} ignored", visited, parsed.Count, cacheHits, ignored), ref scanProgressUtc, 500);
+                    ReportScanProgress(progress, visited, parsed.Count, cacheHits, ignored, ref scanProgressUtc);
                 }
             }
 
@@ -5665,17 +6070,75 @@ namespace SameEpisodeDuplicateFinder
             };
         }
 
-        private static string BuildSessionRootLabel(string current, string added)
+        private static string BuildSessionRootLabel(List<string> roots)
         {
-            var addedLabel = string.IsNullOrWhiteSpace(added) ? "" : added.Trim();
-            if (string.IsNullOrWhiteSpace(current) || string.Equals(current, "No folder scanned", StringComparison.OrdinalIgnoreCase))
+            roots = roots ?? new List<string>();
+            if (roots.Count == 0)
             {
-                return addedLabel;
+                return "No folder scanned";
             }
 
-            return current.IndexOf(" + ", StringComparison.Ordinal) >= 0
-                ? current + " + " + addedLabel
-                : current + " + " + addedLabel;
+            if (roots.Count == 1)
+            {
+                return roots[0];
+            }
+
+            return roots[0] + string.Format(" + {0:N0} location(s)", roots.Count - 1);
+        }
+
+        private List<string> GetSessionRoots()
+        {
+            var roots = rootBox == null ? null : rootBox.Tag as List<string>;
+            return roots == null ? new List<string>() : roots.ToList();
+        }
+
+        private string GetPrimarySessionRoot()
+        {
+            var roots = GetSessionRoots();
+            if (roots.Count > 0)
+            {
+                return roots[0];
+            }
+
+            return rootBox == null ? "" : rootBox.Text;
+        }
+
+        private void SetSessionRoots(IEnumerable<string> roots)
+        {
+            rootBox.Tag = (roots ?? Enumerable.Empty<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void AddSessionRoot(string root)
+        {
+            var roots = GetSessionRoots();
+            if (!string.IsNullOrWhiteSpace(root) && !roots.Contains(root, StringComparer.OrdinalIgnoreCase))
+            {
+                roots.Add(root.Trim());
+            }
+
+            SetSessionRoots(roots);
+        }
+
+        private bool CanWriteSingleRootCache()
+        {
+            var roots = GetSessionRoots();
+            return roots.Count == 1 && Directory.Exists(roots[0]);
+        }
+
+        private void SaveCurrentSessionCache()
+        {
+            var root = GetPrimarySessionRoot();
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return;
+            }
+
+            SaveCachedScan(root, allRows);
+            SaveParseCache(root, allScannedRows.Count > 0 ? allScannedRows : allRows);
         }
 
         private static void ReportProgress(Action<string> progress, string message)
@@ -5702,6 +6165,15 @@ namespace SameEpisodeDuplicateFinder
 
             lastReportUtc = now;
             progress(message);
+        }
+
+        private static void ReportScanProgress(Action<string> progress, int visited, int accepted, int cacheHits, int ignored, ref DateTime lastReportUtc)
+        {
+            ReportProgress(
+                progress,
+                string.Format("Scanning files: {0:N0} checked | {1:N0} accepted | {2:N0} cached | {3:N0} ignored", visited, accepted, cacheHits, ignored),
+                ref lastReportUtc,
+                500);
         }
 
         private static void ThrowIfCancellationRequested(Func<bool> shouldCancel)
@@ -5785,9 +6257,191 @@ namespace SameEpisodeDuplicateFinder
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.last-delete-dry-run.csv");
         }
 
+        private static string GetSelectedFeedPath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.selected-results.rss");
+        }
+
         private static string GetErrorLogPath()
         {
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.errors.log");
+        }
+
+        private void SaveSelectedFeed()
+        {
+            try
+            {
+                var path = GetSelectedFeedPath();
+                using (var writer = XmlWriter.Create(path, new XmlWriterSettings
+                {
+                    Encoding = new UTF8Encoding(false),
+                    Indent = true
+                }))
+                {
+                    writer.WriteStartDocument();
+                    writer.WriteStartElement("rss");
+                    writer.WriteAttributeString("version", "2.0");
+                    writer.WriteStartElement("channel");
+                    writer.WriteElementString("title", "Same Episode Duplicate Finder Selected Results");
+                    writer.WriteElementString("description", "Search results selected inside Same Episode Duplicate Finder.");
+                    writer.WriteElementString("link", string.IsNullOrWhiteSpace(selectedFeedUrl) ? "http://127.0.0.1/" : selectedFeedUrl);
+                    writer.WriteElementString("lastBuildDate", DateTime.UtcNow.ToString("r"));
+
+                    foreach (var item in selectedFeedRows)
+                    {
+                        var link = string.IsNullOrWhiteSpace(item.MagnetLink) ? item.Link : item.MagnetLink;
+                        writer.WriteStartElement("item");
+                        writer.WriteElementString("title", item.Title ?? "");
+                        writer.WriteElementString("description", BuildSelectedFeedDescription(item));
+                        writer.WriteElementString("link", link ?? "");
+                        writer.WriteElementString("guid", link ?? item.Title ?? "");
+                        writer.WriteElementString("pubDate", (item.AddedUtc == DateTime.MinValue ? DateTime.UtcNow : item.AddedUtc).ToString("r"));
+                        writer.WriteEndElement();
+                    }
+
+                    writer.WriteEndElement();
+                    writer.WriteEndElement();
+                    writer.WriteEndDocument();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogException("Save selected RSS feed failed", ex);
+            }
+        }
+
+        private static string BuildSelectedFeedDescription(SelectedSearchFeedItem item)
+        {
+            if (item == null)
+            {
+                return "";
+            }
+
+            return string.Join(" | ", new[]
+            {
+                "Series: " + DisplayOrDash(item.SeriesTitle),
+                "Missing: " + DisplayOrDash(item.MissingEpisode),
+                "Query: " + DisplayOrDash(item.SearchQuery),
+                "Provider: " + DisplayOrDash(item.Provider),
+                "Size: " + DisplayOrDash(item.Size),
+                "Seeders: " + item.Seeders.ToString("N0")
+            });
+        }
+
+        private void UpdateSelectedFeedTotal()
+        {
+            var location = string.IsNullOrWhiteSpace(selectedFeedUrl) ? GetSelectedFeedPath() : selectedFeedUrl;
+            selectedFeedTotalLabel.Text = string.Format("{0:N0} selected result(s) | {1}", selectedFeedRows.Count, location);
+            selectedFeedOpenButton.Enabled = !busyState && File.Exists(GetSelectedFeedPath());
+            selectedFeedRemoveButton.Enabled = !busyState && GetSelectedFeedItem() != null;
+            selectedFeedClearButton.Enabled = !busyState && selectedFeedRows.Count > 0;
+        }
+
+        private void SaveAndRefreshSelectedFeed()
+        {
+            SaveSelectedFeed();
+            UpdateSelectedFeedTotal();
+        }
+
+        private void StartSelectedFeedServer()
+        {
+            for (var port = 8765; port < 8785; port++)
+            {
+                try
+                {
+                    selectedFeedServer = new TcpListener(IPAddress.Loopback, port);
+                    selectedFeedServer.Start();
+                    selectedFeedServerRunning = true;
+                    selectedFeedUrl = "http://127.0.0.1:" + port.ToString() + "/selected-feed.rss";
+                    selectedFeedServerThread = new Thread(SelectedFeedServerLoop);
+                    selectedFeedServerThread.IsBackground = true;
+                    selectedFeedServerThread.Start();
+                    UpdateSelectedFeedTotal();
+                    return;
+                }
+                catch (SocketException)
+                {
+                    selectedFeedServer = null;
+                }
+            }
+
+            selectedFeedUrl = "";
+            UpdateActivity("Selected RSS feed URL could not start; the RSS file is still written locally.", true);
+            UpdateSelectedFeedTotal();
+        }
+
+        private void SelectedFeedServerLoop()
+        {
+            while (selectedFeedServerRunning)
+            {
+                try
+                {
+                    var client = selectedFeedServer.AcceptTcpClient();
+                    ThreadPool.QueueUserWorkItem(delegate { ServeSelectedFeedClient(client); });
+                }
+                catch
+                {
+                    if (selectedFeedServerRunning)
+                    {
+                        Thread.Sleep(250);
+                    }
+                }
+            }
+        }
+
+        private void ServeSelectedFeedClient(object state)
+        {
+            using (var client = state as TcpClient)
+            {
+                if (client == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    using (var stream = client.GetStream())
+                    using (var reader = new StreamReader(stream, Encoding.ASCII))
+                    {
+                        var request = reader.ReadLine() ?? "";
+                        while (!string.IsNullOrWhiteSpace(reader.ReadLine()))
+                        {
+                        }
+
+                        var path = GetSelectedFeedPath();
+                        var isFeedRequest = request.StartsWith("GET /selected-feed.rss ", StringComparison.OrdinalIgnoreCase) ||
+                                            request.StartsWith("GET / ", StringComparison.OrdinalIgnoreCase);
+                        if (!isFeedRequest)
+                        {
+                            WriteHttpResponse(stream, "404 Not Found", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Not found"));
+                            return;
+                        }
+
+                        if (!File.Exists(path))
+                        {
+                            SaveSelectedFeed();
+                        }
+
+                        WriteHttpResponse(stream, "200 OK", "application/rss+xml; charset=utf-8", File.ReadAllBytes(path));
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private static void WriteHttpResponse(Stream stream, string status, string contentType, byte[] body)
+        {
+            body = body ?? new byte[0];
+            var header = "HTTP/1.1 " + status + "\r\n" +
+                         "Content-Type: " + contentType + "\r\n" +
+                         "Content-Length: " + body.Length.ToString() + "\r\n" +
+                         "Cache-Control: no-cache\r\n" +
+                         "Connection: close\r\n\r\n";
+            var headerBytes = Encoding.ASCII.GetBytes(header);
+            stream.Write(headerBytes, 0, headerBytes.Length);
+            stream.Write(body, 0, body.Length);
         }
 
         private void SaveMoveReport(List<ActionPreviewRow> reportRows)
@@ -6387,7 +7041,14 @@ namespace SameEpisodeDuplicateFinder
                 return "";
             }
 
-            return Path.GetFullPath(root).TrimEnd('\\');
+            try
+            {
+                return Path.GetFullPath(root).TrimEnd('\\');
+            }
+            catch
+            {
+                return root.Trim().TrimEnd('\\');
+            }
         }
 
         private static string Csv(string value)
@@ -6454,10 +7115,9 @@ namespace SameEpisodeDuplicateFinder
 
             RefreshDeletionRows();
             PopulateSeriesPanel();
-            if (!string.IsNullOrWhiteSpace(rootBox.Text))
+            if (CanWriteSingleRootCache())
             {
-                SaveCachedScan(rootBox.Text.Trim(), allRows);
-                SaveParseCache(rootBox.Text.Trim(), allScannedRows.Count > 0 ? allScannedRows : allRows);
+                SaveCurrentSessionCache();
             }
 
             UpdateSummary(string.Format("Moved {0} file(s) to the Recycle Bin.", deleted));
@@ -6485,8 +7145,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 row.Delete = false;
             }
-            RefreshVisibleRows();
-            deletionGrid.Refresh();
+            RefreshDeletionView();
             UpdateSummary(null);
             UpdateSummary("Cleared delete marks.");
         }
@@ -6533,9 +7192,7 @@ namespace SameEpisodeDuplicateFinder
             }
 
             var marked = ComputeReviewRecommendations(true);
-            RefreshVisibleRows();
-            deletionGrid.Refresh();
-            grid.Refresh();
+            RefreshReviewGrids();
             UpdateSummary(string.Format("{0}. Marked {1:N0} duplicate file(s) using {2} confidence.", summaryPrefix, marked, GetAutoMarkThresholdLabel(autoMarkThreshold)));
         }
 
@@ -6688,8 +7345,7 @@ namespace SameEpisodeDuplicateFinder
                 targetRows[index].Delete = !targetRows[index].Delete;
             }
 
-            RefreshVisibleRows();
-            deletionGrid.Refresh();
+            RefreshDeletionView();
         }
 
         private void Grid_CellValueChanged(object sender, DataGridViewCellEventArgs e)
@@ -6704,8 +7360,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 BeginInvoke(new Action(delegate
                 {
-                    RefreshVisibleRows();
-                    deletionGrid.Refresh();
+                    RefreshDeletionView();
                     UpdateSummary(null);
                 }));
                 return;
@@ -6783,13 +7438,19 @@ namespace SameEpisodeDuplicateFinder
             viewReadyMenuItem.Enabled = !busy && !candidatesPanelCollapsed;
             viewMissingEpisodesMenuItem.Enabled = !busy;
             viewEpisodeSearchMenuItem.Enabled = !busy;
-            viewRestoreWorkspaceMenuItem.Enabled = !busy && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed || episodeSearchPanelCollapsed);
+            viewSelectedFeedMenuItem.Enabled = !busy;
+            viewRestoreWorkspaceMenuItem.Enabled = !busy && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed || episodeSearchPanelCollapsed || selectedFeedPanelCollapsed);
             episodeSearchButton.Enabled = !busy && GetSelectedMissingEpisodeRow() != null;
+            episodeSearchAddButton.Enabled = !busy && GetSelectedEpisodeSearchResult() != null;
+            selectedFeedOpenButton.Enabled = !busy && File.Exists(GetSelectedFeedPath());
+            selectedFeedRemoveButton.Enabled = !busy && GetSelectedFeedItem() != null;
+            selectedFeedClearButton.Enabled = !busy && selectedFeedRows.Count > 0;
             UpdateWorkspaceMenuState();
             toolsAutoMarkMenuItem.Enabled = !busy && hasCandidateData;
             toolsAutoMarkLevelMenuItem.Enabled = !busy;
             toolsMoveToNameFoldersMenuItem.Enabled = !busy && hasScannedData;
             toolsFileBotMenuItem.Enabled = !busy && hasScannedData;
+            toolsMonitorFoldersMenuItem.Enabled = !busy || toolsMonitorFoldersMenuItem.Checked;
             toolsAniDbCoversMenuItem.Enabled = !busy && hasScannedData;
             toolsSuggestActionsMenuItem.Enabled = !busy && hasCandidateData;
             toolsPreviewActionsMenuItem.Enabled = !busy && hasCandidateData;

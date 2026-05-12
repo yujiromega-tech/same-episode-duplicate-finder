@@ -21,10 +21,10 @@ namespace SameEpisodeDuplicateFinder
                 })
                 .Where(x => x != null)
                 .GroupBy(x => x.File.Title + "|" + x.Scope, StringComparer.OrdinalIgnoreCase)
-                .Select(g => BuildLocalGapRow(g.Select(x => x.File), g.First().File.Title, g.First().Scope, g.Select(x => x.EpisodeNumber)))
-                .Where(x => x != null)
+                .SelectMany(g => BuildLocalGapRows(g.Select(x => x.File), g.First().File.Title, g.First().Scope, g.Select(x => x.EpisodeNumber)))
                 .OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(x => x.Scope, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.SearchKey, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
 
@@ -47,7 +47,9 @@ namespace SameEpisodeDuplicateFinder
                 Scope = row.Scope,
                 EpisodeNumber = episodeNumber,
                 EpisodeCode = FormatEpisodeNumber(episodeNumber),
-                SearchQuery = BuildSearchQuery(row.Title, row.Scope, episodeNumber)
+                SearchQuery = string.IsNullOrWhiteSpace(row.SearchKey)
+                    ? BuildSearchQuery(row.Title, row.Scope, episodeNumber)
+                    : row.SearchKey
             };
         }
 
@@ -62,12 +64,13 @@ namespace SameEpisodeDuplicateFinder
             return string.Format("{0} {1}", title, episode);
         }
 
-        private static MissingEpisodeRow BuildLocalGapRow(IEnumerable<EpisodeFile> files, string title, string scope, IEnumerable<int> episodeNumbers)
+        private static List<MissingEpisodeRow> BuildLocalGapRows(IEnumerable<EpisodeFile> files, string title, string scope, IEnumerable<int> episodeNumbers)
         {
+            var result = new List<MissingEpisodeRow>();
             var present = episodeNumbers.Distinct().OrderBy(x => x).ToList();
             if (present.Count < 2)
             {
-                return null;
+                return result;
             }
 
             var first = present.First();
@@ -76,19 +79,28 @@ namespace SameEpisodeDuplicateFinder
             var missing = Enumerable.Range(first, last - first + 1).Where(x => !presentSet.Contains(x)).ToList();
             if (missing.Count == 0)
             {
-                return null;
+                return result;
             }
 
-            return new MissingEpisodeRow
+            var presentRange = FormatEpisodeNumber(first) + "-" + FormatEpisodeNumber(last);
+            var locationCount = CountDistinctLocations(files);
+            foreach (var missingEpisode in missing)
             {
-                Title = title,
-                Scope = scope,
-                MissingEpisodes = FormatEpisodeNumberList(missing),
-                PresentRange = FormatEpisodeNumber(first) + "-" + FormatEpisodeNumber(last),
-                KnownEpisodes = present.Count,
-                MissingCount = missing.Count,
-                LocationCount = CountDistinctLocations(files)
-            };
+                var searchKey = BuildSearchQuery(title, scope, missingEpisode);
+                result.Add(new MissingEpisodeRow
+                {
+                    Title = title,
+                    Scope = scope,
+                    SearchKey = searchKey,
+                    MissingEpisodes = FormatEpisodeNumber(missingEpisode),
+                    PresentRange = presentRange,
+                    KnownEpisodes = present.Count,
+                    MissingCount = 1,
+                    LocationCount = locationCount
+                });
+            }
+
+            return result;
         }
 
         private static bool TryParseEpisodeNumber(string episode, out string scope, out int episodeNumber)
@@ -120,27 +132,6 @@ namespace SameEpisodeDuplicateFinder
             episodeNumber = 0;
             var match = Regex.Match(missingEpisodes ?? "", @"\d+");
             return match.Success && int.TryParse(match.Value, out episodeNumber);
-        }
-
-        private static string FormatEpisodeNumberList(List<int> numbers)
-        {
-            var ranges = new List<string>();
-            for (var i = 0; i < numbers.Count; i++)
-            {
-                var start = numbers[i];
-                var end = start;
-                while (i + 1 < numbers.Count && numbers[i + 1] == end + 1)
-                {
-                    i++;
-                    end = numbers[i];
-                }
-
-                ranges.Add(start == end
-                    ? FormatEpisodeNumber(start)
-                    : FormatEpisodeNumber(start) + "-" + FormatEpisodeNumber(end));
-            }
-
-            return string.Join(", ", ranges.ToArray());
         }
 
         private static string FormatEpisodeNumber(int episodeNumber)

@@ -218,7 +218,7 @@ namespace SameEpisodeDuplicateFinder
                 return false;
             }
 
-            using (var webClient = new WebClient())
+            using (var webClient = new HttpTimeoutWebClient())
             {
                 HttpNetworkSettings.Apply();
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
@@ -259,6 +259,8 @@ namespace SameEpisodeDuplicateFinder
             request.Accept = "application/json";
             request.ContentType = "application/json";
             request.UserAgent = "SameEpisodeDuplicateFinder";
+            request.Timeout = 30000;
+            request.ReadWriteTimeout = 30000;
             if (!string.IsNullOrWhiteSpace(token))
             {
                 request.Headers[HttpRequestHeader.Authorization] = "Bearer " + token;

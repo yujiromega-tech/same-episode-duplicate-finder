@@ -20,7 +20,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
-            Run("missing episode search query uses first missing episode", MissingEpisodeSearchQueryUsesFirstMissingEpisode);
+            Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
             Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
 
@@ -194,34 +194,42 @@ namespace SameEpisodeDuplicateFinder.Tests
             };
 
             var gaps = MainForm.BuildMissingEpisodeRows(rows);
-            AssertEqual(2, gaps.Count, "gap row count");
-            var show = gaps.Find(x => x.Title == "Show");
+            AssertEqual(3, gaps.Count, "gap row count");
+            var show = gaps.Find(x => x.Title == "Show" && x.MissingEpisodes == "03");
+            var showSecond = gaps.Find(x => x.Title == "Show" && x.MissingEpisodes == "05");
             var seasonal = gaps.Find(x => x.Title == "Seasonal");
             AssertTrue(show != null, "show gap should exist");
+            AssertTrue(showSecond != null, "second show gap should exist");
             AssertTrue(seasonal != null, "seasonal gap should exist");
             AssertEqual("Main", show.Scope, "anime scope");
-            AssertEqual("03, 05", show.MissingEpisodes, "anime missing list");
+            AssertEqual("03", show.MissingEpisodes, "anime missing list");
+            AssertEqual("Show 03", show.SearchKey, "anime search key");
             AssertEqual("01-06", show.PresentRange, "anime present range");
             AssertEqual(4, show.KnownEpisodes, "anime known count");
+            AssertEqual("05", showSecond.MissingEpisodes, "second anime missing list");
+            AssertEqual("Show 05", showSecond.SearchKey, "second anime search key");
             AssertEqual("S01", seasonal.Scope, "seasonal scope");
             AssertEqual("02", seasonal.MissingEpisodes, "seasonal missing list");
+            AssertEqual("Seasonal S01E02", seasonal.SearchKey, "seasonal search key");
         }
 
-        private static void MissingEpisodeSearchQueryUsesFirstMissingEpisode()
+        private static void MissingEpisodeSearchQueryUsesSearchKey()
         {
             var row = new MissingEpisodeRow
             {
                 Title = "Air Gear",
                 Scope = "Main",
-                MissingEpisodes = "03, 05"
+                MissingEpisodes = "03",
+                SearchKey = "Air Gear 03 1080p"
             };
 
             var missing = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
             AssertTrue(missing != null, "missing episode should be created");
-            AssertEqual("Air Gear 03", missing.SearchQuery, "anime query");
+            AssertEqual("Air Gear 03 1080p", missing.SearchQuery, "anime query");
 
             row.Scope = "S01";
-            row.MissingEpisodes = "02-04";
+            row.MissingEpisodes = "02";
+            row.SearchKey = "";
             missing = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
             AssertEqual("Air Gear S01E02", missing.SearchQuery, "season query");
         }

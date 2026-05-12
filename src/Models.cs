@@ -122,6 +122,7 @@ namespace SameEpisodeDuplicateFinder
     {
         public string Title { get; set; }
         public string Scope { get; set; }
+        public string SearchKey { get; set; }
         public string MissingEpisodes { get; set; }
         public string PresentRange { get; set; }
         public int KnownEpisodes { get; set; }
@@ -162,6 +163,26 @@ namespace SameEpisodeDuplicateFinder
         public string Published { get; set; }
         public string Link { get; set; }
         public string MagnetLink { get; set; }
+    }
+
+    internal sealed class SelectedSearchFeedItem
+    {
+        public string SeriesTitle { get; set; }
+        public string MissingEpisode { get; set; }
+        public string SearchQuery { get; set; }
+        public string Provider { get; set; }
+        public string Title { get; set; }
+        public string Size { get; set; }
+        public int Seeders { get; set; }
+        public string Published { get; set; }
+        public string Link { get; set; }
+        public string MagnetLink { get; set; }
+        public DateTime AddedUtc { get; set; }
+
+        public string Added
+        {
+            get { return AddedUtc == DateTime.MinValue ? "" : AddedUtc.ToLocalTime().ToString("g"); }
+        }
     }
 
     internal sealed class AniDbTitleCandidate

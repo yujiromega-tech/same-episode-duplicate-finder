@@ -201,7 +201,7 @@ namespace SameEpisodeDuplicateFinder
                 return false;
             }
 
-            using (var webClient = new WebClient())
+            using (var webClient = new HttpTimeoutWebClient())
             {
                 HttpNetworkSettings.Apply();
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
@@ -219,6 +219,8 @@ namespace SameEpisodeDuplicateFinder
             request.Method = "GET";
             request.Accept = "application/json";
             request.UserAgent = "SameEpisodeDuplicateFinder";
+            request.Timeout = 30000;
+            request.ReadWriteTimeout = 30000;
             request.Headers[HttpRequestHeader.Authorization] = "Bearer " + settings.ReadAccessToken;
 
             try

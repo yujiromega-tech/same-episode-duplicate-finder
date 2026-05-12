@@ -36,7 +36,7 @@ namespace SameEpisodeDuplicateFinder
             HttpNetworkSettings.Apply();
             var url = string.Format(NyaaRssUrl, Uri.EscapeDataString(query ?? ""));
             var document = new XmlDocument();
-            using (var webClient = new WebClient())
+            using (var webClient = new HttpTimeoutWebClient())
             {
                 webClient.Encoding = System.Text.Encoding.UTF8;
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";

@@ -77,12 +77,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build-tests.ps1
 
 The tests cover filename parsing, duplicate-group counting, file format filtering, recommendation scoring helpers, and safe target path generation.
 
-## Python CLI Prototype
-
-A standard-library-only Python prototype lives at `python/sedf_cli.py`. It mirrors the core scan, parse, file format filtering, duplicate grouping, scoring, and CSV output flow so the core logic can be explored outside WinForms.
-
-See `docs/PYTHON_CLI.md` for usage and current gaps.
-
 ## Usage
 
 1. Launch `SameEpisodeDuplicateFinder.exe`.
@@ -121,7 +115,6 @@ TVDB and TMDB can be configured as fallback metadata and cover providers when An
 
 - The app is Windows-only.
 - Much of the current codebase still lives in one large WinForms source file, though model classes and focused tests have started the split.
-- The Python CLI is a prototype and does not yet include the GUI, Recycle Bin delete workflow, move workflow, AniDB, FileBot, or scan cache.
 - The automated test suite is focused on core parsing, grouping, scoring, action reports, and target path helpers; UI workflows still need broader coverage.
 - Duplicate recommendations are heuristic and should be manually reviewed.
 - External services and tools, including AniDB and FileBot, may fail or be rate-limited independently of this app.
@@ -147,7 +140,7 @@ No open-source license has been selected yet. Add a license before publishing pu
 - Switched AniDB cover lookup to the bundled `duplikates` v1 HTTP XML API client.
 - Removed user-facing AniDB client name/version fields from the login dialog.
 - Let missing-cover fetch use AniDB title matching and HTTP cover lookup without requiring AniDB credentials.
-- Extracted file format filtering into core code and added Python CLI filter parity.
+- Extracted file format filtering into core code.
 ### 0.0.2
 
 - Added focused unit tests for parsing, grouping, scoring, action reports, target paths, and series-title search.
