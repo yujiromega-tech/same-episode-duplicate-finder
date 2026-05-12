@@ -21,6 +21,15 @@ namespace SameEpisodeDuplicateFinder
         public const string Name = "duplikates";
         public const int Version = 1;
     }
+
+    internal static class HttpNetworkSettings
+    {
+        public static void Apply()
+        {
+            ServicePointManager.SecurityProtocol = ServicePointManager.SecurityProtocol | (SecurityProtocolType)3072;
+        }
+    }
+
     internal static class AniDbTitleIndex
     {
         private static readonly string[] TitleUrls =
@@ -89,6 +98,7 @@ namespace SameEpisodeDuplicateFinder
             }
 
             Exception lastError = null;
+            HttpNetworkSettings.Apply();
             foreach (var url in TitleUrls)
             {
                 try
@@ -111,6 +121,11 @@ namespace SameEpisodeDuplicateFinder
                 {
                     lastError = ex;
                 }
+            }
+
+            if (File.Exists(CachePath))
+            {
+                return File.ReadAllText(CachePath, Encoding.UTF8);
             }
 
             throw new InvalidOperationException("AniDB title index could not be downloaded. " + (lastError == null ? "" : lastError.Message), lastError);
@@ -521,6 +536,7 @@ namespace SameEpisodeDuplicateFinder
 
         private static string DownloadAnimeXml(string aniDbId)
         {
+            HttpNetworkSettings.Apply();
             var url = string.Format(
                 "http://api.anidb.net:9001/httpapi?request=anime&client={0}&clientver={1}&protover=1&aid={2}",
                 Encode(AniDbApiClient.Name),
@@ -530,7 +546,18 @@ namespace SameEpisodeDuplicateFinder
             {
                 webClient.Encoding = Encoding.UTF8;
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
-                return webClient.DownloadString(url);
+                var bytes = webClient.DownloadData(url);
+                if (bytes.Length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b)
+                {
+                    using (var compressedStream = new MemoryStream(bytes))
+                    using (var gzip = new GZipStream(compressedStream, CompressionMode.Decompress))
+                    using (var reader = new StreamReader(gzip, Encoding.UTF8))
+                    {
+                        return reader.ReadToEnd();
+                    }
+                }
+
+                return Encoding.UTF8.GetString(bytes);
             }
         }
 
@@ -1119,6 +1146,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem viewColumnsMenuItem;
         private readonly ToolStripMenuItem viewCandidatesMenuItem;
         private readonly ToolStripMenuItem viewReadyMenuItem;
+        private readonly ToolStripMenuItem viewMissingEpisodesMenuItem;
         private readonly ToolStripMenuItem viewRestoreWorkspaceMenuItem;
         private readonly ToolStripMenuItem viewSeriesCoversMenuItem;
         private readonly ToolStripMenuItem viewDarkModeMenuItem;
@@ -1157,6 +1185,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly ImageList seriesCoverImages;
         private readonly DataGridView grid;
         private readonly DataGridView deletionGrid;
+        private readonly DataGridView missingEpisodesGrid;
         private readonly Label detailsBox;
         private readonly ContextMenuStrip candidateContextMenu;
         private readonly ToolStripMenuItem openCandidateFileItem;
@@ -1166,20 +1195,25 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem previewCandidateActionsItem;
         private readonly Label candidateTotalLabel;
         private readonly Label deletionTotalLabel;
+        private readonly Label missingEpisodesTotalLabel;
         private readonly TableLayoutPanel workspacePanel;
         private readonly GroupBox seriesGroup;
         private readonly GroupBox activityGroup;
         private readonly GroupBox detailsGroup;
         private readonly GroupBox candidatesGroup;
         private readonly GroupBox deletionGroup;
+        private readonly GroupBox missingEpisodesGroup;
         private readonly Button candidatesCloseButton;
         private readonly Button deletionCloseButton;
+        private readonly Button missingEpisodesCloseButton;
         private readonly List<EpisodeFile> allRows;
         private readonly List<EpisodeFile> allScannedRows;
         private readonly BindingList<EpisodeFile> rows;
         private readonly BindingList<EpisodeFile> deletionRows;
+        private readonly BindingList<MissingEpisodeRow> missingEpisodeRows;
         private readonly BindingSource source;
         private readonly BindingSource deletionSource;
+        private readonly BindingSource missingEpisodesSource;
         private FileFormatFilter fileFormatFilter;
         private AutoMarkThreshold autoMarkThreshold;
         private DataGridView activeGrid;
@@ -1192,6 +1226,7 @@ namespace SameEpisodeDuplicateFinder
         private bool darkMode;
         private bool candidatesPanelCollapsed;
         private bool deletionPanelCollapsed;
+        private bool missingEpisodesPanelCollapsed;
         private bool restoringColumnLayout;
 
         public MainForm()
@@ -1208,10 +1243,13 @@ namespace SameEpisodeDuplicateFinder
             allScannedRows = new List<EpisodeFile>();
             rows = new BindingList<EpisodeFile>();
             deletionRows = new BindingList<EpisodeFile>();
+            missingEpisodeRows = new BindingList<MissingEpisodeRow>();
             source = new BindingSource();
             source.DataSource = rows;
             deletionSource = new BindingSource();
             deletionSource.DataSource = deletionRows;
+            missingEpisodesSource = new BindingSource();
+            missingEpisodesSource.DataSource = missingEpisodeRows;
             fileFormatFilter = FileFormatFilterStore.Load();
             autoMarkThreshold = AutoMarkThresholdStore.Load();
             activeReviewFilter = "All";
@@ -1255,6 +1293,9 @@ namespace SameEpisodeDuplicateFinder
             viewReadyMenuItem = new ToolStripMenuItem("Hide Ready");
             viewReadyMenuItem.ToolTipText = "Show or hide the Deletion Ready panel.";
             viewReadyMenuItem.Click += ToggleReadyButton_Click;
+            viewMissingEpisodesMenuItem = new ToolStripMenuItem("Hide Missing Episodes");
+            viewMissingEpisodesMenuItem.ToolTipText = "Show or hide the Missing Episodes panel.";
+            viewMissingEpisodesMenuItem.Click += ToggleMissingEpisodesButton_Click;
             viewRestoreWorkspaceMenuItem = new ToolStripMenuItem("Restore Workspace");
             viewRestoreWorkspaceMenuItem.ToolTipText = "Show the default review panels again.";
             viewRestoreWorkspaceMenuItem.Click += RestoreWorkspaceMenuItem_Click;
@@ -1269,6 +1310,8 @@ namespace SameEpisodeDuplicateFinder
             viewMenu.DropDownItems.Add(viewColumnsMenuItem);
             viewMenu.DropDownItems.Add(viewCandidatesMenuItem);
             viewMenu.DropDownItems.Add(viewReadyMenuItem);
+            viewMenu.DropDownItems.Add(viewMissingEpisodesMenuItem);
+            viewMenu.DropDownItems.Add(viewRestoreWorkspaceMenuItem);
             viewMenu.DropDownItems.Add(viewSeriesCoversMenuItem);
             viewMenu.DropDownItems.Add(new ToolStripSeparator());
             viewMenu.DropDownItems.Add(viewDarkModeMenuItem);
@@ -1608,6 +1651,32 @@ namespace SameEpisodeDuplicateFinder
             deletionTotalLabel.Padding = new Padding(4, 0, 0, 0);
             deletionTotalLabel.Text = "Grand total: 0 file(s) | 0 B";
 
+            missingEpisodesGrid = new DataGridView();
+            missingEpisodesGrid.Dock = DockStyle.Fill;
+            missingEpisodesGrid.AutoGenerateColumns = false;
+            missingEpisodesGrid.AllowUserToAddRows = false;
+            missingEpisodesGrid.AllowUserToDeleteRows = false;
+            missingEpisodesGrid.AllowUserToOrderColumns = true;
+            missingEpisodesGrid.ReadOnly = true;
+            missingEpisodesGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            missingEpisodesGrid.MultiSelect = false;
+            missingEpisodesGrid.DataSource = missingEpisodesSource;
+            missingEpisodesGrid.CellDoubleClick += MissingEpisodesGrid_CellDoubleClick;
+            StyleGrid(missingEpisodesGrid);
+            AddMissingEpisodeColumn("Title", "Series", 180);
+            AddMissingEpisodeColumn("Scope", "Scope", 72);
+            AddMissingEpisodeColumn("MissingEpisodes", "Missing", 220);
+            AddMissingEpisodeColumn("PresentRange", "Present Range", 110);
+            AddMissingEpisodeColumn("KnownEpisodes", "Known", 70);
+            AddMissingEpisodeColumn("MissingCount", "Missing Count", 92);
+            AddMissingEpisodeColumn("LocationCount", "Locations", 78);
+
+            missingEpisodesTotalLabel = new Label();
+            missingEpisodesTotalLabel.Dock = DockStyle.Fill;
+            missingEpisodesTotalLabel.TextAlign = ContentAlignment.MiddleLeft;
+            missingEpisodesTotalLabel.Padding = new Padding(4, 0, 0, 0);
+            missingEpisodesTotalLabel.Text = "No missing episode gaps found.";
+
             AddCheckColumn("Delete", "Delete", 58);
             AddTextColumn("Recommendation", "Recommended", 120);
             AddTextColumn("Confidence", "Confidence", 92);
@@ -1708,6 +1777,24 @@ namespace SameEpisodeDuplicateFinder
             deletionCloseButton = CreatePanelCloseButton("Hide the Deletion Ready panel.", ToggleReadyButton_Click);
             AttachPanelCloseButton(deletionGroup, deletionCloseButton);
 
+            missingEpisodesGroup = new GroupBox();
+            missingEpisodesGroup.Text = "Missing Episodes";
+            missingEpisodesGroup.Dock = DockStyle.Fill;
+            missingEpisodesGroup.Padding = new Padding(8);
+            StyleGroupBox(missingEpisodesGroup);
+
+            var missingEpisodesPanel = new TableLayoutPanel();
+            missingEpisodesPanel.Dock = DockStyle.Fill;
+            missingEpisodesPanel.ColumnCount = 1;
+            missingEpisodesPanel.RowCount = 2;
+            missingEpisodesPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            missingEpisodesPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            missingEpisodesPanel.Controls.Add(missingEpisodesTotalLabel, 0, 0);
+            missingEpisodesPanel.Controls.Add(missingEpisodesGrid, 0, 1);
+            missingEpisodesGroup.Controls.Add(missingEpisodesPanel);
+            missingEpisodesCloseButton = CreatePanelCloseButton("Hide the Missing Episodes panel.", ToggleMissingEpisodesButton_Click);
+            AttachPanelCloseButton(missingEpisodesGroup, missingEpisodesCloseButton);
+
             activityGroup = new GroupBox();
             activityGroup.Text = "History / Alerts";
             activityGroup.Dock = DockStyle.Fill;
@@ -1719,19 +1806,21 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.Dock = DockStyle.Fill;
             workspacePanel.Padding = new Padding(10);
             workspacePanel.BackColor = AppBackColor;
-            workspacePanel.ColumnCount = 3;
+            workspacePanel.ColumnCount = 4;
             workspacePanel.RowCount = 2;
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3333F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3333F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.3334F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
             workspacePanel.Controls.Add(seriesGroup, 0, 0);
             workspacePanel.Controls.Add(candidatesGroup, 1, 0);
             workspacePanel.Controls.Add(deletionGroup, 2, 0);
+            workspacePanel.Controls.Add(missingEpisodesGroup, 3, 0);
             workspacePanel.Controls.Add(activityGroup, 0, 1);
             workspacePanel.Controls.Add(detailsGroup, 1, 1);
-            workspacePanel.SetColumnSpan(detailsGroup, 2);
+            workspacePanel.SetColumnSpan(detailsGroup, 3);
             ApplyWorkspacePanelVisibility();
 
             Controls.Add(workspacePanel);
@@ -1759,6 +1848,16 @@ namespace SameEpisodeDuplicateFinder
         {
             AddTextColumn(grid, propertyName, headerText, width);
             AddTextColumn(deletionGrid, propertyName, headerText, width);
+        }
+
+        private void AddMissingEpisodeColumn(string propertyName, string headerText, int width)
+        {
+            var column = new DataGridViewTextBoxColumn();
+            column.DataPropertyName = propertyName;
+            column.HeaderText = headerText;
+            column.Width = width;
+            column.SortMode = DataGridViewColumnSortMode.Automatic;
+            missingEpisodesGrid.Columns.Add(column);
         }
 
         private void AddReviewTab(string text, string tag)
@@ -2021,12 +2120,19 @@ namespace SameEpisodeDuplicateFinder
             viewReadyMenuItem.Text = deletionPanelCollapsed ? "Show Ready" : "Hide Ready";
         }
 
+        private void UpdateMissingEpisodesToggleText()
+        {
+            viewMissingEpisodesMenuItem.Text = missingEpisodesPanelCollapsed ? "Show Missing Episodes" : "Hide Missing Episodes";
+        }
+
         private void ApplyWorkspacePanelVisibility()
         {
             var candidatesVisible = !candidatesPanelCollapsed;
             var deletionVisible = candidatesVisible && !deletionPanelCollapsed;
+            var missingEpisodesVisible = !missingEpisodesPanelCollapsed;
             candidatesGroup.Visible = candidatesVisible;
             deletionGroup.Visible = deletionVisible;
+            missingEpisodesGroup.Visible = missingEpisodesVisible;
 
             var visiblePanelCount = 1;
             if (candidatesVisible)
@@ -2037,27 +2143,36 @@ namespace SameEpisodeDuplicateFinder
             {
                 visiblePanelCount++;
             }
+            if (missingEpisodesVisible)
+            {
+                visiblePanelCount++;
+            }
 
             var visibleWidth = 100F / visiblePanelCount;
             workspacePanel.ColumnStyles[0].Width = visibleWidth;
             workspacePanel.ColumnStyles[1].Width = candidatesVisible ? visibleWidth : 0F;
             workspacePanel.ColumnStyles[2].Width = deletionVisible ? visibleWidth : 0F;
+            workspacePanel.ColumnStyles[3].Width = missingEpisodesVisible ? visibleWidth : 0F;
             UpdateCandidatesToggleText();
             UpdateReadyToggleText();
+            UpdateMissingEpisodesToggleText();
         }
 
         private void UpdateWorkspaceMenuState()
         {
             viewCandidatesMenuItem.Checked = !candidatesPanelCollapsed;
             viewReadyMenuItem.Checked = !deletionPanelCollapsed && !candidatesPanelCollapsed;
+            viewMissingEpisodesMenuItem.Checked = !missingEpisodesPanelCollapsed;
             viewReadyMenuItem.Enabled = !busyState && !candidatesPanelCollapsed;
-            viewRestoreWorkspaceMenuItem.Enabled = !busyState && (candidatesPanelCollapsed || deletionPanelCollapsed);
+            viewMissingEpisodesMenuItem.Enabled = !busyState;
+            viewRestoreWorkspaceMenuItem.Enabled = !busyState && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed);
         }
 
         private void RestoreWorkspaceMenuItem_Click(object sender, EventArgs e)
         {
             candidatesPanelCollapsed = false;
             deletionPanelCollapsed = false;
+            missingEpisodesPanelCollapsed = false;
             ApplyWorkspacePanelVisibility();
         }
         private void ToggleDarkModeMenuItem_Click(object sender, EventArgs e)
@@ -2102,6 +2217,7 @@ namespace SameEpisodeDuplicateFinder
             StyleDashboard();
             StyleGrid(grid);
             StyleGrid(deletionGrid);
+            StyleGrid(missingEpisodesGrid);
             StyleSeriesListView();
             StyleSeriesCoverView();
             candidateContextMenu.BackColor = PanelBackColor;
@@ -2119,6 +2235,7 @@ namespace SameEpisodeDuplicateFinder
             reviewTabs.ForeColor = PrimaryTextColor;
             grid.Refresh();
             deletionGrid.Refresh();
+            missingEpisodesGrid.Refresh();
         }
 
         private void ApplyMenuTheme(ToolStripItemCollection items)
@@ -2488,6 +2605,7 @@ namespace SameEpisodeDuplicateFinder
             ComputeReviewRecommendations(false);
             ShowRows(allRows);
             PopulateSeriesPanel();
+            PopulateMissingEpisodesPanel();
         }
 
         private static List<EpisodeFile> MergeScannedRowsWithDuplicates(List<EpisodeFile> scannedData, List<EpisodeFile> duplicateRows)
@@ -2945,6 +3063,133 @@ namespace SameEpisodeDuplicateFinder
             return allScannedRows.Count > 0 ? allScannedRows : allRows;
         }
 
+        private void PopulateMissingEpisodesPanel()
+        {
+            if (missingEpisodeRows == null)
+            {
+                return;
+            }
+
+            missingEpisodeRows.Clear();
+            foreach (var row in BuildMissingEpisodeRows(GetSeriesSourceRows()))
+            {
+                missingEpisodeRows.Add(row);
+            }
+
+            missingEpisodesTotalLabel.Text = missingEpisodeRows.Count == 0
+                ? "No local episode gaps found."
+                : string.Format("{0:N0} series/season gap(s) found.", missingEpisodeRows.Count);
+        }
+
+        internal static List<MissingEpisodeRow> BuildMissingEpisodeRows(IEnumerable<EpisodeFile> files)
+        {
+            return (files ?? Enumerable.Empty<EpisodeFile>())
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                .Select(x =>
+                {
+                    string scope;
+                    int episodeNumber;
+                    return TryParseEpisodeNumber(x.Episode, out scope, out episodeNumber)
+                        ? new { File = x, Scope = scope, EpisodeNumber = episodeNumber }
+                        : null;
+                })
+                .Where(x => x != null)
+                .GroupBy(x => x.File.Title + "|" + x.Scope, StringComparer.OrdinalIgnoreCase)
+                .Select(g => BuildMissingEpisodeRow(g.Select(x => x.File), g.First().File.Title, g.First().Scope, g.Select(x => x.EpisodeNumber)))
+                .Where(x => x != null)
+                .OrderBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(x => x.Scope, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static MissingEpisodeRow BuildMissingEpisodeRow(IEnumerable<EpisodeFile> files, string title, string scope, IEnumerable<int> episodeNumbers)
+        {
+            var present = episodeNumbers.Distinct().OrderBy(x => x).ToList();
+            if (present.Count < 2)
+            {
+                return null;
+            }
+
+            var first = present.First();
+            var last = present.Last();
+            var presentSet = new HashSet<int>(present);
+            var missing = Enumerable.Range(first, last - first + 1).Where(x => !presentSet.Contains(x)).ToList();
+            if (missing.Count == 0)
+            {
+                return null;
+            }
+
+            return new MissingEpisodeRow
+            {
+                Title = title,
+                Scope = scope,
+                MissingEpisodes = FormatEpisodeNumberList(missing),
+                PresentRange = FormatEpisodeNumber(first) + "-" + FormatEpisodeNumber(last),
+                KnownEpisodes = present.Count,
+                MissingCount = missing.Count,
+                LocationCount = CountDistinctLocations(files)
+            };
+        }
+
+        private static bool TryParseEpisodeNumber(string episode, out string scope, out int episodeNumber)
+        {
+            scope = "";
+            episodeNumber = 0;
+            var sxe = Regex.Match(episode ?? "", @"^S(?<season>\d+)E(?<episode>\d+)$", RegexOptions.IgnoreCase);
+            if (sxe.Success && int.TryParse(sxe.Groups["episode"].Value, out episodeNumber))
+            {
+                int season;
+                scope = int.TryParse(sxe.Groups["season"].Value, out season)
+                    ? "S" + season.ToString("D2")
+                    : sxe.Groups["season"].Value.ToUpperInvariant();
+                return episodeNumber > 0;
+            }
+
+            var anime = Regex.Match(episode ?? "", @"^E(?<episode>\d+)$", RegexOptions.IgnoreCase);
+            if (anime.Success && int.TryParse(anime.Groups["episode"].Value, out episodeNumber))
+            {
+                scope = "Main";
+                return episodeNumber > 0;
+            }
+
+            return false;
+        }
+
+        private static string FormatEpisodeNumberList(List<int> numbers)
+        {
+            var ranges = new List<string>();
+            for (var i = 0; i < numbers.Count; i++)
+            {
+                var start = numbers[i];
+                var end = start;
+                while (i + 1 < numbers.Count && numbers[i + 1] == end + 1)
+                {
+                    i++;
+                    end = numbers[i];
+                }
+
+                ranges.Add(start == end
+                    ? FormatEpisodeNumber(start)
+                    : FormatEpisodeNumber(start) + "-" + FormatEpisodeNumber(end));
+            }
+
+            return string.Join(", ", ranges.ToArray());
+        }
+
+        private static string FormatEpisodeNumber(int episodeNumber)
+        {
+            return episodeNumber < 100 ? episodeNumber.ToString("D2") : episodeNumber.ToString();
+        }
+
+        private static int CountDistinctLocations(IEnumerable<EpisodeFile> files)
+        {
+            return files.Where(x => x != null)
+                        .Select(GetLocationKey)
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+        }
+
         private static int CountMultiLocationSeries(IEnumerable<EpisodeFile> source)
         {
             return source.GroupBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
@@ -3025,6 +3270,22 @@ namespace SameEpisodeDuplicateFinder
             }
 
             ApplySeriesFilter(e.Item.Tag);
+        }
+
+        private void MissingEpisodesGrid_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= missingEpisodesGrid.Rows.Count)
+            {
+                return;
+            }
+
+            var row = missingEpisodesGrid.Rows[e.RowIndex].DataBoundItem as MissingEpisodeRow;
+            if (row == null || string.IsNullOrWhiteSpace(row.Title))
+            {
+                return;
+            }
+
+            ApplySeriesFilter(row.Title);
         }
 
         private void ApplySeriesFilter(object tag)
@@ -4205,6 +4466,12 @@ namespace SameEpisodeDuplicateFinder
             ApplyWorkspacePanelVisibility();
         }
 
+        private void ToggleMissingEpisodesButton_Click(object sender, EventArgs e)
+        {
+            missingEpisodesPanelCollapsed = !missingEpisodesPanelCollapsed;
+            ApplyWorkspacePanelVisibility();
+        }
+
         private void ScanButton_Click(object sender, EventArgs e)
         {
             StartScan(rootBox.Text.Trim());
@@ -4800,19 +5067,24 @@ namespace SameEpisodeDuplicateFinder
                 var tvDbClient = tvDbSettings.HasApiKey ? new TvDbClient(tvDbSettings) : null;
                 var tmDbSettings = TmDbSettingsStore.Load();
                 var tmDbClient = tmDbSettings.HasReadAccessToken ? new TmDbClient(tmDbSettings) : null;
+                var aniDbLookupAvailable = true;
                 for (var i = 0; i < titles.Count; i++)
                 {
                     ThrowIfCancellationRequested(delegate { return cancelRequested; });
                     var title = titles[i];
                     AniDbAnimeResult match = null;
-                    try
+                    if (aniDbLookupAvailable)
                     {
-                        worker.ReportProgress(0, string.Format("AniDB HTTP lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                        match = LookupAniDbMetadata(title);
-                    }
-                    catch (Exception ex)
-                    {
-                        match = new AniDbAnimeResult { QueryTitle = title, Error = ex.Message };
+                        try
+                        {
+                            worker.ReportProgress(0, string.Format("AniDB HTTP lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                            match = LookupAniDbMetadata(title);
+                        }
+                        catch (Exception ex)
+                        {
+                            aniDbLookupAvailable = ex.Message.IndexOf("title index", StringComparison.OrdinalIgnoreCase) < 0;
+                            match = new AniDbAnimeResult { QueryTitle = title, Error = ex.Message };
+                        }
                     }
 
                     if ((match == null || !match.Found) && tvDbClient != null)
@@ -6077,7 +6349,8 @@ namespace SameEpisodeDuplicateFinder
             toolsClearMarksMenuItem.Enabled = !busy && hasCandidateData;
             viewCandidatesMenuItem.Enabled = !busy;
             viewReadyMenuItem.Enabled = !busy && !candidatesPanelCollapsed;
-            viewRestoreWorkspaceMenuItem.Enabled = !busy && (candidatesPanelCollapsed || deletionPanelCollapsed);
+            viewMissingEpisodesMenuItem.Enabled = !busy;
+            viewRestoreWorkspaceMenuItem.Enabled = !busy && (candidatesPanelCollapsed || deletionPanelCollapsed || missingEpisodesPanelCollapsed);
             UpdateWorkspaceMenuState();
             toolsAutoMarkMenuItem.Enabled = !busy && hasCandidateData;
             toolsAutoMarkLevelMenuItem.Enabled = !busy;

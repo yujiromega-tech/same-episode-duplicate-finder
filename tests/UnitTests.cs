@@ -19,6 +19,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
+            Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -173,6 +174,34 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "SubsPlease"), "subtitle group should not match");
             AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "Different File Name"), "file name should not match");
             AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "higher resolution"), "recommendation reason should not match");
+        }
+
+        private static void MissingEpisodeFinderReportsLocalGaps()
+        {
+            var rows = new List<EpisodeFile>
+            {
+                NewEpisode("show|E001", "Show", "Show - 01.mkv", 100),
+                NewEpisode("show|E002", "Show", "Show - 02.mkv", 100),
+                NewEpisode("show|E004", "Show", "Show - 04.mkv", 100),
+                NewEpisode("show|E006", "Show", "Show - 06.mkv", 100),
+                NewEpisode("seasonal|S01E01", "Seasonal", "Seasonal.S01E01.mkv", 100),
+                NewEpisode("seasonal|S01E03", "Seasonal", "Seasonal.S01E03.mkv", 100),
+                NewEpisode("complete|E001", "Complete", "Complete - 01.mkv", 100),
+                NewEpisode("complete|E002", "Complete", "Complete - 02.mkv", 100)
+            };
+
+            var gaps = MainForm.BuildMissingEpisodeRows(rows);
+            AssertEqual(2, gaps.Count, "gap row count");
+            var show = gaps.Find(x => x.Title == "Show");
+            var seasonal = gaps.Find(x => x.Title == "Seasonal");
+            AssertTrue(show != null, "show gap should exist");
+            AssertTrue(seasonal != null, "seasonal gap should exist");
+            AssertEqual("Main", show.Scope, "anime scope");
+            AssertEqual("03, 05", show.MissingEpisodes, "anime missing list");
+            AssertEqual("01-06", show.PresentRange, "anime present range");
+            AssertEqual(4, show.KnownEpisodes, "anime known count");
+            AssertEqual("S01", seasonal.Scope, "seasonal scope");
+            AssertEqual("02", seasonal.MissingEpisodes, "seasonal missing list");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

@@ -118,6 +118,17 @@ namespace SameEpisodeDuplicateFinder
         public string TargetPath { get; set; }
     }
 
+    internal sealed class MissingEpisodeRow
+    {
+        public string Title { get; set; }
+        public string Scope { get; set; }
+        public string MissingEpisodes { get; set; }
+        public string PresentRange { get; set; }
+        public int KnownEpisodes { get; set; }
+        public int MissingCount { get; set; }
+        public int LocationCount { get; set; }
+    }
+
     internal sealed class AniDbTitleCandidate
     {
         public bool Use { get; set; }

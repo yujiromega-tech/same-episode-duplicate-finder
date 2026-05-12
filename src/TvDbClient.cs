@@ -220,6 +220,7 @@ namespace SameEpisodeDuplicateFinder
 
             using (var webClient = new WebClient())
             {
+                HttpNetworkSettings.Apply();
                 webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
                 webClient.DownloadFile(result.ImageUrl, targetPath);
             }
@@ -252,6 +253,7 @@ namespace SameEpisodeDuplicateFinder
 
         private IDictionary ReadJsonObject(string url, string method, string body, string token)
         {
+            HttpNetworkSettings.Apply();
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = method;
             request.Accept = "application/json";
