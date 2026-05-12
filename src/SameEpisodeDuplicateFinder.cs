@@ -4884,6 +4884,16 @@ namespace SameEpisodeDuplicateFinder
         private void LoadSavedButton_Click(object sender, EventArgs e)
         {
             var root = rootBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(root) || string.Equals(root, "No folder scanned", StringComparison.OrdinalIgnoreCase) || !Directory.Exists(root))
+            {
+                var cachedRoot = ReadCacheRoot(GetCachePath());
+                if (!string.IsNullOrWhiteSpace(cachedRoot))
+                {
+                    root = cachedRoot;
+                    rootBox.Text = cachedRoot;
+                }
+            }
+
             StartLoadCachedScan(root, false);
         }
 
@@ -5920,10 +5930,7 @@ namespace SameEpisodeDuplicateFinder
                     return;
                 }
 
-                report("Reading full scanned file cache...");
-                var scannedRows = ReadAllParsedRows(root, report);
-                ThrowIfCancellationRequested(delegate { return cancelRequested; });
-                args.Result = new object[] { cachedRows, scannedRows };
+                args.Result = new object[] { cachedRows, readRoot };
             };
             worker.ProgressChanged += delegate(object workerSender, ProgressChangedEventArgs args)
             {
@@ -5953,16 +5960,80 @@ namespace SameEpisodeDuplicateFinder
 
                     var result = (object[])args.Result;
                     var cachedRows = (List<EpisodeFile>)result[0];
-                    var scannedRows = (List<EpisodeFile>)result[1];
-                    LoadRowsIntoUi(cachedRows, scannedRows);
-                    UpdateSummary(string.Format("Loaded saved scan: {0:N0} candidates | {1:N0} scanned files.", cachedRows.Count, scannedRows.Count));
+                    var readRoot = Convert.ToString(result[1]);
+                    LoadRowsIntoUi(cachedRows, cachedRows);
+                    UpdateSummary(string.Format("Loaded saved scan: {0:N0} duplicate candidate(s). Loading full scan cache...", cachedRows.Count));
                     UpdateCommandAvailability();
+                    BeginInvoke(new Action(delegate
+                    {
+                        StartLoadFullScanCache(readRoot);
+                    }));
                 }
                 catch (Exception ex)
                 {
                     LogException("Load saved scan failed", ex);
                     MessageBox.Show(this, ex.Message, "Load saved scan failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     UpdateActivity("Saved scan cache load failed.", true);
+                }
+                finally
+                {
+                    SetBusy(false, statusLabel.Text);
+                }
+            };
+            worker.RunWorkerAsync();
+        }
+
+        private void StartLoadFullScanCache(string root)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return;
+            }
+
+            SetBusy(true, "Loading full scanned file cache...");
+            var worker = new BackgroundWorker();
+            worker.WorkerReportsProgress = true;
+            worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
+            {
+                var backgroundWorker = (BackgroundWorker)workerSender;
+                Action<string> report = delegate(string message)
+                {
+                    backgroundWorker.ReportProgress(0, message);
+                };
+
+                args.Result = ReadAllParsedRows(root, report);
+            };
+            worker.ProgressChanged += delegate(object workerSender, ProgressChangedEventArgs args)
+            {
+                UpdateActivity(args.UserState as string ?? "Loading full scanned file cache...", false);
+            };
+            worker.RunWorkerCompleted += delegate(object workerSender, RunWorkerCompletedEventArgs args)
+            {
+                try
+                {
+                    if (args.Error != null)
+                    {
+                        throw args.Error;
+                    }
+
+                    var scannedRows = (List<EpisodeFile>)args.Result;
+                    if (scannedRows.Count > 0)
+                    {
+                        allScannedRows.Clear();
+                        allScannedRows.AddRange(MergeScannedRowsWithDuplicates(scannedRows, allRows));
+                        PopulateSeriesPanel();
+                        PopulateMissingEpisodesPanel();
+                        UpdateSummary(string.Format("Full scan cache loaded: {0:N0} scanned file(s).", allScannedRows.Count));
+                    }
+                    else
+                    {
+                        UpdateActivity("Full scanned file cache was empty.", true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogException("Load full scan cache failed", ex);
+                    UpdateActivity("Full scanned file cache load failed.", true);
                 }
                 finally
                 {
