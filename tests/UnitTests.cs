@@ -20,6 +20,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
+            Run("missing episode search query uses first missing episode", MissingEpisodeSearchQueryUsesFirstMissingEpisode);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -202,6 +203,25 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertEqual(4, show.KnownEpisodes, "anime known count");
             AssertEqual("S01", seasonal.Scope, "seasonal scope");
             AssertEqual("02", seasonal.MissingEpisodes, "seasonal missing list");
+        }
+
+        private static void MissingEpisodeSearchQueryUsesFirstMissingEpisode()
+        {
+            var row = new MissingEpisodeRow
+            {
+                Title = "Air Gear",
+                Scope = "Main",
+                MissingEpisodes = "03, 05"
+            };
+
+            var missing = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
+            AssertTrue(missing != null, "missing episode should be created");
+            AssertEqual("Air Gear 03", missing.SearchQuery, "anime query");
+
+            row.Scope = "S01";
+            row.MissingEpisodes = "02-04";
+            missing = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
+            AssertEqual("Air Gear S01E02", missing.SearchQuery, "season query");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

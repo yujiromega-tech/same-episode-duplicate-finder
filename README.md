@@ -141,6 +141,8 @@ No open-source license has been selected yet. Add a license before publishing pu
 ### 0.0.3
 
 - Added a hideable Missing Episodes workflow panel with local gap detection.
+- Added an Episode Search workflow panel with explicit Nyaa RSS search for selected missing episodes.
+- Added service seams for official AniDB episode data and missing-episode analysis.
 - Improved metadata HTTP handling for TLS 1.2 and gzip-compressed AniDB XML responses.
 - Switched AniDB cover lookup to the bundled `duplikates` v1 HTTP XML API client.
 - Removed user-facing AniDB client name/version fields from the login dialog.

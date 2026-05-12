@@ -129,6 +129,40 @@ namespace SameEpisodeDuplicateFinder
         public int LocationCount { get; set; }
     }
 
+    internal sealed class OfficialEpisode
+    {
+        public string SeriesTitle { get; set; }
+        public string AniDbId { get; set; }
+        public string Scope { get; set; }
+        public int EpisodeNumber { get; set; }
+        public string EpisodeCode { get; set; }
+        public string Title { get; set; }
+        public string AirDate { get; set; }
+    }
+
+    internal sealed class MissingEpisode
+    {
+        public string SeriesTitle { get; set; }
+        public string Scope { get; set; }
+        public int EpisodeNumber { get; set; }
+        public string EpisodeCode { get; set; }
+        public string OfficialTitle { get; set; }
+        public string SearchQuery { get; set; }
+    }
+
+    internal sealed class EpisodeSearchResult
+    {
+        public string Provider { get; set; }
+        public string Title { get; set; }
+        public string Size { get; set; }
+        public int Seeders { get; set; }
+        public int Leechers { get; set; }
+        public int Downloads { get; set; }
+        public string Trusted { get; set; }
+        public string Published { get; set; }
+        public string Link { get; set; }
+    }
+
     internal sealed class AniDbTitleCandidate
     {
         public bool Use { get; set; }
