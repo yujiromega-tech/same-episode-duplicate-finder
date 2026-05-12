@@ -21,6 +21,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses first missing episode", MissingEpisodeSearchQueryUsesFirstMissingEpisode);
+            Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -222,6 +223,14 @@ namespace SameEpisodeDuplicateFinder.Tests
             row.MissingEpisodes = "02-04";
             missing = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
             AssertEqual("Air Gear S01E02", missing.SearchQuery, "season query");
+        }
+
+        private static void EpisodeSearchBuildsMagnetLink()
+        {
+            var link = EpisodeSearchService.BuildMagnetLinkForTest("ABC123", "Air Gear 03");
+            AssertContains(link, "magnet:?xt=urn:btih:ABC123", "magnet hash");
+            AssertContains(link, "dn=Air%20Gear%2003", "magnet display name");
+            AssertEqual("", EpisodeSearchService.BuildMagnetLinkForTest("", "Air Gear 03"), "empty hash");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

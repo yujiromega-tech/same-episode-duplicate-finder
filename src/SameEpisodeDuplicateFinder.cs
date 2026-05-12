@@ -1188,10 +1188,10 @@ namespace SameEpisodeDuplicateFinder
         private readonly DataGridView deletionGrid;
         private readonly DataGridView missingEpisodesGrid;
         private readonly DataGridView episodeSearchGrid;
-        private readonly TextBox episodeSearchGroupBox;
-        private readonly TextBox episodeSearchResolutionBox;
+        private readonly ComboBox episodeSearchGroupBox;
+        private readonly ComboBox episodeSearchResolutionBox;
         private readonly Button episodeSearchButton;
-        private readonly Label detailsBox;
+        private readonly LinkLabel detailsBox;
         private readonly ContextMenuStrip candidateContextMenu;
         private readonly ToolStripMenuItem openCandidateFileItem;
         private readonly ToolStripMenuItem openCandidateFolderItem;
@@ -1717,15 +1717,23 @@ namespace SameEpisodeDuplicateFinder
             AddEpisodeSearchColumn("Trusted", "Trusted", 70);
             AddEpisodeSearchColumn("Published", "Published", 120);
 
-            episodeSearchGroupBox = new TextBox();
+            episodeSearchGroupBox = new ComboBox();
             episodeSearchGroupBox.Dock = DockStyle.Fill;
-            episodeSearchGroupBox.BorderStyle = BorderStyle.FixedSingle;
-            toolTip.SetToolTip(episodeSearchGroupBox, "Optional release group filter for episode search.");
+            episodeSearchGroupBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            episodeSearchGroupBox.Items.Add("Any group");
+            episodeSearchGroupBox.SelectedIndex = 0;
+            toolTip.SetToolTip(episodeSearchGroupBox, "Release group filter for episode search.");
 
-            episodeSearchResolutionBox = new TextBox();
+            episodeSearchResolutionBox = new ComboBox();
             episodeSearchResolutionBox.Dock = DockStyle.Fill;
-            episodeSearchResolutionBox.BorderStyle = BorderStyle.FixedSingle;
-            toolTip.SetToolTip(episodeSearchResolutionBox, "Optional resolution filter such as 1080p.");
+            episodeSearchResolutionBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            episodeSearchResolutionBox.Items.Add("Any resolution");
+            episodeSearchResolutionBox.Items.Add("2160p");
+            episodeSearchResolutionBox.Items.Add("1080p");
+            episodeSearchResolutionBox.Items.Add("720p");
+            episodeSearchResolutionBox.Items.Add("480p");
+            episodeSearchResolutionBox.SelectedIndex = 0;
+            toolTip.SetToolTip(episodeSearchResolutionBox, "Resolution filter for episode search.");
 
             episodeSearchButton = new Button();
             episodeSearchButton.Text = "Search";
@@ -1770,15 +1778,19 @@ namespace SameEpisodeDuplicateFinder
             deletionGrid.ColumnDisplayIndexChanged += Grid_ColumnLayoutChanged;
             deletionGrid.ColumnWidthChanged += Grid_ColumnLayoutChanged;
 
-            detailsBox = new Label();
+            detailsBox = new LinkLabel();
             detailsBox.Dock = DockStyle.Fill;
             detailsBox.BorderStyle = BorderStyle.None;
             detailsBox.BackColor = PanelBackColor;
             detailsBox.ForeColor = PrimaryTextColor;
+            detailsBox.LinkColor = Color.FromArgb(42, 91, 215);
+            detailsBox.ActiveLinkColor = Color.FromArgb(29, 78, 216);
+            detailsBox.VisitedLinkColor = Color.FromArgb(88, 80, 160);
             detailsBox.AutoEllipsis = true;
             detailsBox.TextAlign = ContentAlignment.TopLeft;
             detailsBox.Padding = new Padding(2);
             detailsBox.Text = "Select a file to see details.";
+            detailsBox.LinkClicked += DetailsBox_LinkClicked;
 
             detailsGroup = new GroupBox();
             detailsGroup.Text = "Details";
@@ -2349,6 +2361,9 @@ namespace SameEpisodeDuplicateFinder
             }
             detailsBox.BackColor = PanelBackColor;
             detailsBox.ForeColor = PrimaryTextColor;
+            detailsBox.LinkColor = darkMode ? Color.FromArgb(147, 197, 253) : Color.FromArgb(42, 91, 215);
+            detailsBox.ActiveLinkColor = darkMode ? Color.FromArgb(191, 219, 254) : Color.FromArgb(29, 78, 216);
+            detailsBox.VisitedLinkColor = darkMode ? Color.FromArgb(196, 181, 253) : Color.FromArgb(88, 80, 160);
             activityLogBox.BackColor = PanelBackColor;
             activityLogBox.ForeColor = PrimaryTextColor;
             reviewTabs.BackColor = PanelBackColor;
@@ -3312,6 +3327,7 @@ namespace SameEpisodeDuplicateFinder
             episodeSearchButton.Enabled = !busyState && row != null;
             if (row != null)
             {
+                PopulateEpisodeSearchFilters(row);
                 UpdateDetails(row);
             }
         }
@@ -3335,6 +3351,15 @@ namespace SameEpisodeDuplicateFinder
             RunEpisodeSearch(GetSelectedMissingEpisodeRow());
         }
 
+        private void DetailsBox_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
+        {
+            var target = e.Link == null ? null : e.Link.LinkData as string;
+            if (!string.IsNullOrWhiteSpace(target))
+            {
+                OpenShellPath(target);
+            }
+        }
+
         private MissingEpisodeRow GetSelectedMissingEpisodeRow()
         {
             if (missingEpisodesGrid == null || missingEpisodesGrid.CurrentRow == null)
@@ -3343,6 +3368,76 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return missingEpisodesGrid.CurrentRow.DataBoundItem as MissingEpisodeRow;
+        }
+
+        private void PopulateEpisodeSearchFilters(MissingEpisodeRow row)
+        {
+            var selectedGroup = Convert.ToString(episodeSearchGroupBox.SelectedItem);
+            episodeSearchGroupBox.Items.Clear();
+            episodeSearchGroupBox.Items.Add("Any group");
+            foreach (var group in GetSeriesSourceRows()
+                .Where(x => row != null && string.Equals(x.Title, row.Title, StringComparison.OrdinalIgnoreCase))
+                .Select(x => x.SubtitleGroup)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                episodeSearchGroupBox.Items.Add(group);
+            }
+
+            SelectComboValueOrDefault(episodeSearchGroupBox, selectedGroup);
+
+            var selectedResolution = Convert.ToString(episodeSearchResolutionBox.SelectedItem);
+            episodeSearchResolutionBox.Items.Clear();
+            episodeSearchResolutionBox.Items.Add("Any resolution");
+            var resolutions = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in new[] { "2160p", "1080p", "720p", "480p" })
+            {
+                resolutions.Add(item);
+            }
+            foreach (var file in GetSeriesSourceRows().Where(x => row != null && string.Equals(x.Title, row.Title, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (Match match in Regex.Matches((file.FileName ?? "") + " " + (file.Path ?? ""), @"\b(2160p|1080p|720p|576p|480p)\b", RegexOptions.IgnoreCase))
+                {
+                    resolutions.Add(match.Value.ToLowerInvariant());
+                }
+            }
+            foreach (var resolution in resolutions.OrderByDescending(ParseResolutionHeight))
+            {
+                episodeSearchResolutionBox.Items.Add(resolution);
+            }
+
+            SelectComboValueOrDefault(episodeSearchResolutionBox, selectedResolution);
+        }
+
+        private static void SelectComboValueOrDefault(ComboBox comboBox, string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                for (var i = 0; i < comboBox.Items.Count; i++)
+                {
+                    if (string.Equals(Convert.ToString(comboBox.Items[i]), value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        comboBox.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+            comboBox.SelectedIndex = comboBox.Items.Count > 0 ? 0 : -1;
+        }
+
+        private static int ParseResolutionHeight(string value)
+        {
+            var match = Regex.Match(value ?? "", @"\d+");
+            int parsed;
+            return match.Success && int.TryParse(match.Value, out parsed) ? parsed : 0;
+        }
+
+        private static string SelectedFilterValue(ComboBox comboBox, string anyText)
+        {
+            var value = Convert.ToString(comboBox.SelectedItem);
+            return string.Equals(value, anyText, StringComparison.OrdinalIgnoreCase) ? "" : value;
         }
 
         private void RunEpisodeSearch(MissingEpisodeRow row)
@@ -3361,7 +3456,10 @@ namespace SameEpisodeDuplicateFinder
             worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
             {
                 var service = new EpisodeSearchService();
-                args.Result = service.Search(missingEpisode, episodeSearchGroupBox.Text, episodeSearchResolutionBox.Text);
+                args.Result = service.Search(
+                    missingEpisode,
+                    SelectedFilterValue(episodeSearchGroupBox, "Any group"),
+                    SelectedFilterValue(episodeSearchResolutionBox, "Any resolution"));
             };
             worker.RunWorkerCompleted += delegate(object workerSender, RunWorkerCompletedEventArgs args)
             {
@@ -4529,10 +4627,12 @@ namespace SameEpisodeDuplicateFinder
 
             if (file == null)
             {
+                detailsBox.Links.Clear();
                 detailsBox.Text = "Select a file to see details.";
                 return;
             }
 
+            detailsBox.Links.Clear();
             detailsBox.Text =
                 "Series: " + file.Title + Environment.NewLine +
                 "Episode: " + DisplayOrDash(file.Episode) + " | Size: " + FormatByteSize(file.SizeBytes) + " | Group: " + DisplayOrDash(file.SubtitleGroup) + " | Version: " + DisplayOrDash(file.Version) + Environment.NewLine +
@@ -4550,6 +4650,7 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            detailsBox.Links.Clear();
             detailsBox.Text =
                 "Missing Episodes: " + row.Title + Environment.NewLine +
                 "Scope: " + DisplayOrDash(row.Scope) + " | Missing: " + DisplayOrDash(row.MissingEpisodes) + " | Present: " + DisplayOrDash(row.PresentRange) + Environment.NewLine +
@@ -4564,12 +4665,23 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            detailsBox.Links.Clear();
+            var magnetLine = string.IsNullOrWhiteSpace(row.MagnetLink) ? "Magnet: -" : "Magnet: Open magnet";
             detailsBox.Text =
                 "Episode Search: " + DisplayOrDash(row.Provider) + Environment.NewLine +
                 "Result: " + ShortenMiddle(DisplayOrDash(row.Title), 170) + Environment.NewLine +
                 "Size: " + DisplayOrDash(row.Size) + " | Seed: " + row.Seeders.ToString("N0") + " | Leech: " + row.Leechers.ToString("N0") + " | Done: " + row.Downloads.ToString("N0") + Environment.NewLine +
                 "Trusted: " + DisplayOrDash(row.Trusted) + " | Published: " + DisplayOrDash(row.Published) + Environment.NewLine +
-                "Link: " + ShortenMiddle(DisplayOrDash(row.Link), 170);
+                magnetLine + Environment.NewLine +
+                "Page: " + ShortenMiddle(DisplayOrDash(row.Link), 170);
+            if (!string.IsNullOrWhiteSpace(row.MagnetLink))
+            {
+                var start = detailsBox.Text.IndexOf("Open magnet", StringComparison.Ordinal);
+                if (start >= 0)
+                {
+                    detailsBox.Links.Add(start, "Open magnet".Length, row.MagnetLink);
+                }
+            }
         }
 
         private string GetSearchQuery(MissingEpisodeRow row)

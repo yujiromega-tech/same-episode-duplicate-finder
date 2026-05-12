@@ -161,6 +161,7 @@ namespace SameEpisodeDuplicateFinder
         public string Trusted { get; set; }
         public string Published { get; set; }
         public string Link { get; set; }
+        public string MagnetLink { get; set; }
     }
 
     internal sealed class AniDbTitleCandidate

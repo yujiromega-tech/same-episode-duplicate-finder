@@ -54,6 +54,7 @@ namespace SameEpisodeDuplicateFinder
                                Provider = "Nyaa",
                                Title = InnerText(item, "title"),
                                Link = InnerText(item, "link"),
+                               MagnetLink = BuildMagnetLink(InnerText(item, "nyaa:infoHash", manager), InnerText(item, "title")),
                                Size = InnerText(item, "nyaa:size", manager),
                                Seeders = ParseInt(InnerText(item, "nyaa:seeders", manager)),
                                Leechers = ParseInt(InnerText(item, "nyaa:leechers", manager)),
@@ -88,6 +89,22 @@ namespace SameEpisodeDuplicateFinder
             return DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out parsed)
                 ? parsed.ToLocalTime().ToString("g")
                 : value;
+        }
+
+        private static string BuildMagnetLink(string infoHash, string title)
+        {
+            if (string.IsNullOrWhiteSpace(infoHash))
+            {
+                return "";
+            }
+
+            return "magnet:?xt=urn:btih:" + Uri.EscapeDataString(infoHash.Trim()) +
+                   "&dn=" + Uri.EscapeDataString(title ?? "");
+        }
+
+        internal static string BuildMagnetLinkForTest(string infoHash, string title)
+        {
+            return BuildMagnetLink(infoHash, title);
         }
     }
 }
