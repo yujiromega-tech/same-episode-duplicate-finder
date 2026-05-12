@@ -21,6 +21,7 @@
     <Reference Include="System.Security" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
+    <Reference Include="System.Web.Extensions" />
     <Reference Include="Microsoft.VisualBasic" />
   </ItemGroup>
   <ItemGroup>
@@ -30,5 +31,7 @@
     <Compile Include="src\Models.cs" />
     <Compile Include="src\RecommendationScorer.cs" />
     <Compile Include="src\SameEpisodeDuplicateFinder.cs" />
+    <Compile Include="src\TvDbClient.cs" />
+    <Compile Include="src\TmDbClient.cs" />
   </ItemGroup>
 </Project>

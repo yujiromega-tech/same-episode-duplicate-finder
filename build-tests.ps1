@@ -10,7 +10,9 @@ $sources = @(
     (Join-Path $root "src\FileFormatFilter.cs"),
     (Join-Path $root "src\Models.cs"),
     (Join-Path $root "src\RecommendationScorer.cs"),
-    (Join-Path $root "src\SameEpisodeDuplicateFinder.cs")
+    (Join-Path $root "src\SameEpisodeDuplicateFinder.cs"),
+    (Join-Path $root "src\TvDbClient.cs"),
+    (Join-Path $root "src\TmDbClient.cs")
 )
 $assemblyInfo = Join-Path $root "Properties\AssemblyInfo.cs"
 $tests = Join-Path $root "tests\UnitTests.cs"
@@ -40,6 +42,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
     /reference:System.Security.dll `
     /reference:System.Windows.Forms.dll `
     /reference:System.Xml.dll `
+    /reference:System.Web.Extensions.dll `
     /reference:Microsoft.VisualBasic.dll `
     $assemblyInfo `
     $sources `

@@ -1412,7 +1412,9 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem fileLoadSavedMenuItem;
         private readonly ToolStripMenuItem fileExportMenuItem;
         private readonly ToolStripMenuItem viewColumnsMenuItem;
+        private readonly ToolStripMenuItem viewCandidatesMenuItem;
         private readonly ToolStripMenuItem viewReadyMenuItem;
+        private readonly ToolStripMenuItem viewRestoreWorkspaceMenuItem;
         private readonly ToolStripMenuItem viewSeriesCoversMenuItem;
         private readonly ToolStripMenuItem viewDarkModeMenuItem;
         private readonly ToolStripMenuItem toolsClearMarksMenuItem;
@@ -1443,6 +1445,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label locationChipLabel;
         private readonly Label filterChipLabel;
         private readonly Label cacheChipLabel;
+        private readonly Label providerChipLabel;
         private readonly TabControl reviewTabs;
         private readonly ListView seriesListView;
         private readonly ListView seriesCoverView;
@@ -1459,7 +1462,13 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label candidateTotalLabel;
         private readonly Label deletionTotalLabel;
         private readonly TableLayoutPanel workspacePanel;
+        private readonly GroupBox seriesGroup;
+        private readonly GroupBox activityGroup;
+        private readonly GroupBox detailsGroup;
+        private readonly GroupBox candidatesGroup;
         private readonly GroupBox deletionGroup;
+        private readonly Button candidatesCloseButton;
+        private readonly Button deletionCloseButton;
         private readonly List<EpisodeFile> allRows;
         private readonly List<EpisodeFile> allScannedRows;
         private readonly BindingList<EpisodeFile> rows;
@@ -1477,6 +1486,7 @@ namespace SameEpisodeDuplicateFinder
         private volatile bool cancelRequested;
         private bool showSeriesCovers;
         private bool darkMode;
+        private bool candidatesPanelCollapsed;
         private bool deletionPanelCollapsed;
         private bool restoringColumnLayout;
 
@@ -1536,10 +1546,15 @@ namespace SameEpisodeDuplicateFinder
             viewColumnsMenuItem = new ToolStripMenuItem("Columns...");
             viewColumnsMenuItem.ToolTipText = "Choose which candidate columns are visible.";
             viewColumnsMenuItem.Click += ColumnsButton_Click;
+            viewCandidatesMenuItem = new ToolStripMenuItem("Hide Candidates");
+            viewCandidatesMenuItem.ToolTipText = "Show or hide the Candidates panel.";
+            viewCandidatesMenuItem.Click += ToggleCandidatesButton_Click;
             viewReadyMenuItem = new ToolStripMenuItem("Hide Ready");
             viewReadyMenuItem.ToolTipText = "Show or hide the Deletion Ready panel.";
-            viewReadyMenuItem.Enabled = false;
             viewReadyMenuItem.Click += ToggleReadyButton_Click;
+            viewRestoreWorkspaceMenuItem = new ToolStripMenuItem("Restore Workspace");
+            viewRestoreWorkspaceMenuItem.ToolTipText = "Show the default review panels again.";
+            viewRestoreWorkspaceMenuItem.Click += RestoreWorkspaceMenuItem_Click;
             viewSeriesCoversMenuItem = new ToolStripMenuItem("Series Covers");
             viewSeriesCoversMenuItem.ToolTipText = "Switch the series panel between text names and cover-art tiles.";
             viewSeriesCoversMenuItem.CheckOnClick = true;
@@ -1549,6 +1564,7 @@ namespace SameEpisodeDuplicateFinder
             viewDarkModeMenuItem.CheckOnClick = true;
             viewDarkModeMenuItem.Click += ToggleDarkModeMenuItem_Click;
             viewMenu.DropDownItems.Add(viewColumnsMenuItem);
+            viewMenu.DropDownItems.Add(viewCandidatesMenuItem);
             viewMenu.DropDownItems.Add(viewReadyMenuItem);
             viewMenu.DropDownItems.Add(viewSeriesCoversMenuItem);
             viewMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -1559,11 +1575,11 @@ namespace SameEpisodeDuplicateFinder
             toolsClearMarksMenuItem.ToolTipText = "Remove all current deletion marks without changing files on disk.";
             toolsClearMarksMenuItem.Enabled = false;
             toolsClearMarksMenuItem.Click += ClearMarksButton_Click;
-            toolsAniDbMenuItem = new ToolStripMenuItem(savedAniDbSettings.HasCredentials ? "AniDB Ready" : "AniDB Login");
-            toolsAniDbMenuItem.ToolTipText = "Sign in to AniDB for metadata lookup. Cover art uses the bundled HTTP XML API client.";
+            toolsAniDbMenuItem = new ToolStripMenuItem(savedAniDbSettings.HasCredentials ? "Metadata Lookup" : "AniDB Login");
+            toolsAniDbMenuItem.ToolTipText = "Use AniDB for primary metadata lookup, with TVDB and TMDB fallback where configured.";
             toolsAniDbMenuItem.Click += AniDbButton_Click;
-            toolsAniDbCoversMenuItem = new ToolStripMenuItem("AniDB Missing Covers...");
-            toolsAniDbCoversMenuItem.ToolTipText = "Find missing cover art through AniDB title matches and the bundled HTTP XML API client.";
+            toolsAniDbCoversMenuItem = new ToolStripMenuItem("Fetch Missing Covers...");
+            toolsAniDbCoversMenuItem.ToolTipText = "Find missing cover art through AniDB, with TVDB and TMDB used as backup providers.";
             toolsAniDbCoversMenuItem.Enabled = false;
             toolsAniDbCoversMenuItem.Click += AniDbMissingCoversMenuItem_Click;
             toolsSuggestActionsMenuItem = new ToolStripMenuItem("Suggest Best Actions");
@@ -1630,8 +1646,8 @@ namespace SameEpisodeDuplicateFinder
             helpGuideMenuItem = new ToolStripMenuItem("Beta Guide");
             helpGuideMenuItem.ToolTipText = "Show the safety notes and recommended first-run workflow.";
             helpGuideMenuItem.Click += HelpGuideMenuItem_Click;
-            helpCredentialMenuItem = new ToolStripMenuItem("AniDB Credentials");
-            helpCredentialMenuItem.ToolTipText = "Show where AniDB credentials are stored and how to clear them.";
+            helpCredentialMenuItem = new ToolStripMenuItem("Metadata Providers");
+            helpCredentialMenuItem.ToolTipText = "Show provider storage, client, and attribution details.";
             helpCredentialMenuItem.Click += HelpCredentialMenuItem_Click;
             helpMenu.DropDownItems.Add(helpGuideMenuItem);
             helpMenu.DropDownItems.Add(helpCredentialMenuItem);
@@ -1721,6 +1737,7 @@ namespace SameEpisodeDuplicateFinder
             locationChipLabel = CreateChipLabel();
             filterChipLabel = CreateChipLabel();
             cacheChipLabel = CreateChipLabel();
+            providerChipLabel = CreateChipLabel();
 
             activityLogBox = new TextBox();
             activityLogBox.Dock = DockStyle.Fill;
@@ -1899,12 +1916,12 @@ namespace SameEpisodeDuplicateFinder
             AddTextColumn("SizeMB", "MB", 80);
             AddTextColumn("Version", "Version", 70);
             AddTextColumn("FileLocation", "Location", 420);
-            AddTextColumn("AniDbDisplay", "AniDB", 220);
+            AddTextColumn("AniDbDisplay", "Metadata", 220);
             AddTextColumn("Key", "Group Key", 260);
             AddTextColumn("Title", "Title", 240);
-            AddTextColumn("AniDbId", "AniDB ID", 80);
-            AddTextColumn("AniDbTitle", "AniDB Title", 220);
-            AddTextColumn("AniDbYear", "AniDB Year", 90);
+            AddTextColumn("AniDbId", "Metadata ID", 92);
+            AddTextColumn("AniDbTitle", "Metadata Title", 220);
+            AddTextColumn("AniDbYear", "Metadata Year", 96);
             AddTextColumn("SizeBytes", "Size Bytes", 105);
             SetColumnVisibility("Key", false);
             SetColumnVisibility("Title", false);
@@ -1928,14 +1945,14 @@ namespace SameEpisodeDuplicateFinder
             detailsBox.Padding = new Padding(2);
             detailsBox.Text = "Select a file to see details.";
 
-            var detailsGroup = new GroupBox();
+            detailsGroup = new GroupBox();
             detailsGroup.Text = "Details";
             detailsGroup.Dock = DockStyle.Fill;
             detailsGroup.Padding = new Padding(8);
             StyleGroupBox(detailsGroup);
             detailsGroup.Controls.Add(detailsBox);
 
-            var seriesGroup = new GroupBox();
+            seriesGroup = new GroupBox();
             seriesGroup.Text = "Series";
             seriesGroup.Dock = DockStyle.Fill;
             seriesGroup.Padding = new Padding(8);
@@ -1946,7 +1963,7 @@ namespace SameEpisodeDuplicateFinder
             StyleSeriesCoverView();
             UpdateSeriesPanelMode();
 
-            var candidatesGroup = new GroupBox();
+            candidatesGroup = new GroupBox();
             candidatesGroup.Text = "Candidates";
             candidatesGroup.Dock = DockStyle.Fill;
             candidatesGroup.Padding = new Padding(8);
@@ -1963,6 +1980,8 @@ namespace SameEpisodeDuplicateFinder
             candidatesPanel.Controls.Add(reviewTabs, 0, 1);
             candidatesPanel.Controls.Add(grid, 0, 2);
             candidatesGroup.Controls.Add(candidatesPanel);
+            candidatesCloseButton = CreatePanelCloseButton("Hide the Candidates panel.", ToggleCandidatesButton_Click);
+            AttachPanelCloseButton(candidatesGroup, candidatesCloseButton);
 
             deletionGroup = new GroupBox();
             deletionGroup.Text = "Deletion Ready";
@@ -1983,8 +2002,10 @@ namespace SameEpisodeDuplicateFinder
             deletionPanel.Controls.Add(deletionGrid, 0, 1);
             deletionPanel.SetColumnSpan(deletionGrid, 2);
             deletionGroup.Controls.Add(deletionPanel);
+            deletionCloseButton = CreatePanelCloseButton("Hide the Deletion Ready panel.", ToggleReadyButton_Click);
+            AttachPanelCloseButton(deletionGroup, deletionCloseButton);
 
-            var activityGroup = new GroupBox();
+            activityGroup = new GroupBox();
             activityGroup.Text = "History / Alerts";
             activityGroup.Dock = DockStyle.Fill;
             activityGroup.Padding = new Padding(8);
@@ -2008,6 +2029,7 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.Controls.Add(activityGroup, 0, 1);
             workspacePanel.Controls.Add(detailsGroup, 1, 1);
             workspacePanel.SetColumnSpan(detailsGroup, 2);
+            ApplyWorkspacePanelVisibility();
 
             Controls.Add(workspacePanel);
             Controls.Add(topPanel);
@@ -2196,6 +2218,7 @@ namespace SameEpisodeDuplicateFinder
             StyleChipLabel(locationChipLabel);
             StyleChipLabel(filterChipLabel);
             StyleChipLabel(cacheChipLabel);
+            StyleChipLabel(providerChipLabel);
         }
 
         private void StyleGrid(DataGridView targetGrid)
@@ -2256,12 +2279,84 @@ namespace SameEpisodeDuplicateFinder
             groupBox.ForeColor = PrimaryTextColor;
         }
 
-        private void UpdateReadyToggleText()
+        private Button CreatePanelCloseButton(string tooltip, EventHandler clickHandler)
         {
-            var text = deletionPanelCollapsed ? "Show Ready" : "Hide Ready";
-            viewReadyMenuItem.Text = text;
+            var button = new Button();
+            button.Text = "X";
+            button.Size = new Size(24, 22);
+            button.TabStop = false;
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.BackColor = PanelBackColor;
+            button.ForeColor = SecondaryTextColor;
+            button.Font = new Font(Font.FontFamily, 8F, FontStyle.Bold);
+            button.Click += clickHandler;
+            toolTip.SetToolTip(button, tooltip);
+            return button;
         }
 
+        private void AttachPanelCloseButton(GroupBox groupBox, Button closeButton)
+        {
+            groupBox.Controls.Add(closeButton);
+            groupBox.Resize += delegate { PositionPanelCloseButton(groupBox, closeButton); };
+            PositionPanelCloseButton(groupBox, closeButton);
+            closeButton.BringToFront();
+        }
+
+        private void PositionPanelCloseButton(GroupBox groupBox, Button closeButton)
+        {
+            closeButton.Location = new Point(Math.Max(0, groupBox.ClientSize.Width - closeButton.Width - 8), 0);
+            closeButton.BringToFront();
+        }
+        private void UpdateCandidatesToggleText()
+        {
+            viewCandidatesMenuItem.Text = candidatesPanelCollapsed ? "Show Candidates" : "Hide Candidates";
+        }
+
+        private void UpdateReadyToggleText()
+        {
+            viewReadyMenuItem.Text = deletionPanelCollapsed ? "Show Ready" : "Hide Ready";
+        }
+
+        private void ApplyWorkspacePanelVisibility()
+        {
+            var candidatesVisible = !candidatesPanelCollapsed;
+            var deletionVisible = candidatesVisible && !deletionPanelCollapsed;
+            candidatesGroup.Visible = candidatesVisible;
+            deletionGroup.Visible = deletionVisible;
+
+            var visiblePanelCount = 1;
+            if (candidatesVisible)
+            {
+                visiblePanelCount++;
+            }
+            if (deletionVisible)
+            {
+                visiblePanelCount++;
+            }
+
+            var visibleWidth = 100F / visiblePanelCount;
+            workspacePanel.ColumnStyles[0].Width = visibleWidth;
+            workspacePanel.ColumnStyles[1].Width = candidatesVisible ? visibleWidth : 0F;
+            workspacePanel.ColumnStyles[2].Width = deletionVisible ? visibleWidth : 0F;
+            UpdateCandidatesToggleText();
+            UpdateReadyToggleText();
+        }
+
+        private void UpdateWorkspaceMenuState()
+        {
+            viewCandidatesMenuItem.Checked = !candidatesPanelCollapsed;
+            viewReadyMenuItem.Checked = !deletionPanelCollapsed && !candidatesPanelCollapsed;
+            viewReadyMenuItem.Enabled = !busyState && !candidatesPanelCollapsed;
+            viewRestoreWorkspaceMenuItem.Enabled = !busyState && (candidatesPanelCollapsed || deletionPanelCollapsed);
+        }
+
+        private void RestoreWorkspaceMenuItem_Click(object sender, EventArgs e)
+        {
+            candidatesPanelCollapsed = false;
+            deletionPanelCollapsed = false;
+            ApplyWorkspacePanelVisibility();
+        }
         private void ToggleDarkModeMenuItem_Click(object sender, EventArgs e)
         {
             darkMode = viewDarkModeMenuItem.Checked;
@@ -2558,11 +2653,12 @@ namespace SameEpisodeDuplicateFinder
         {
             MessageBox.Show(
                 this,
-                "AniDB credentials are saved in a local settings file next to the EXE.\r\n\r\n" +
-                "AniDB HTTP XML cover requests use client duplikates version 1.\r\n\r\n" +
-                "The password is protected with Windows user-level data protection, so it is tied to this Windows account.\r\n\r\n" +
-                "To clear saved credentials: Tools > AniDB Login, then choose the logout/forget option when prompted.",
-                "AniDB Credentials",
+                "Metadata provider settings are saved in local files next to the EXE.\r\n\r\n" +
+                "AniDB HTTP XML cover requests use client duplikates version 1. AniDB account passwords are protected with Windows user-level data protection.\r\n\r\n" +
+                "TVDB and TMDB API credentials are stored locally and protected with Windows user-level data protection when saved by the app.\r\n\r\n" +
+                "This product uses the TMDB API but is not endorsed or certified by TMDB.\r\n\r\n" +
+                "To clear saved AniDB credentials: Tools > AniDB Login, then choose the logout/forget option when prompted.",
+                "Metadata Providers",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
         }
@@ -2954,6 +3050,7 @@ namespace SameEpisodeDuplicateFinder
             locationChipLabel.Text = string.Format("Locations {0:N0}", CountMultiLocationSeries(seriesSource));
             filterChipLabel.Text = GetFileFormatFilterSummary();
             cacheChipLabel.Text = GetCacheStatusSummary();
+            providerChipLabel.Text = GetProviderStatusSummary();
         }
 
         private string GetFileFormatFilterSummary()
@@ -2972,6 +3069,13 @@ namespace SameEpisodeDuplicateFinder
             return (fileFormatFilter.AllowOnlyListed ? "Allow " : "Ignore ") + listed;
         }
 
+        private string GetProviderStatusSummary()
+        {
+            var aniDb = savedAniDbSettings != null && savedAniDbSettings.HasCredentials ? "AniDB ready" : "AniDB login needed";
+            var tvDb = TvDbSettingsStore.Load().HasApiKey ? "TVDB ready" : "TVDB missing key";
+            var tmDb = TmDbSettingsStore.Load().HasReadAccessToken ? "TMDB ready" : "TMDB missing token";
+            return aniDb + " | " + tvDb + " | " + tmDb;
+        }
         private string GetCacheStatusSummary()
         {
             if (string.IsNullOrWhiteSpace(rootBox.Text) || !File.Exists(GetCachePath()))
@@ -4363,7 +4467,7 @@ namespace SameEpisodeDuplicateFinder
                 "Episode: " + DisplayOrDash(file.Episode) + " | Size: " + FormatByteSize(file.SizeBytes) + " | Group: " + DisplayOrDash(file.SubtitleGroup) + " | Version: " + DisplayOrDash(file.Version) + Environment.NewLine +
                 "Recommendation: " + DisplayOrDash(file.Recommendation) + " | " + DisplayOrDash(file.Confidence) + " | " + DisplayOrDash(file.ReviewStatus) + " | " + DisplayOrDash(file.ArtworkStatus) + Environment.NewLine +
                 "Reason: " + ShortenMiddle(DisplayOrDash(file.RecommendationReason), 170) + Environment.NewLine +
-                "AniDB: " + ShortenMiddle(DisplayOrDash(file.AniDbDisplay), 170) + Environment.NewLine +
+                "Metadata: " + ShortenMiddle(DisplayOrDash(file.AniDbDisplay), 170) + Environment.NewLine +
                 "Location: " + ShortenMiddle(DisplayOrDash(file.FileLocation), 170) + Environment.NewLine +
                 "File: " + ShortenMiddle(DisplayOrDash(file.FileName), 170);
         }
@@ -4386,23 +4490,16 @@ namespace SameEpisodeDuplicateFinder
             return value.Substring(0, left) + "..." + value.Substring(value.Length - right);
         }
 
+        private void ToggleCandidatesButton_Click(object sender, EventArgs e)
+        {
+            candidatesPanelCollapsed = !candidatesPanelCollapsed;
+            ApplyWorkspacePanelVisibility();
+        }
+
         private void ToggleReadyButton_Click(object sender, EventArgs e)
         {
             deletionPanelCollapsed = !deletionPanelCollapsed;
-            deletionGroup.Visible = !deletionPanelCollapsed;
-            if (deletionPanelCollapsed)
-            {
-                workspacePanel.ColumnStyles[0].Width = 50F;
-                workspacePanel.ColumnStyles[1].Width = 50F;
-                workspacePanel.ColumnStyles[2].Width = 0F;
-            }
-            else
-            {
-                workspacePanel.ColumnStyles[0].Width = 33.3333F;
-                workspacePanel.ColumnStyles[1].Width = 33.3333F;
-                workspacePanel.ColumnStyles[2].Width = 33.3334F;
-            }
-            UpdateReadyToggleText();
+            ApplyWorkspacePanelVisibility();
         }
 
         private void ScanButton_Click(object sender, EventArgs e)
@@ -4563,7 +4660,7 @@ namespace SameEpisodeDuplicateFinder
         {
             if (allRows.Count == 0 && allScannedRows.Count == 0)
             {
-                MessageBox.Show(this, "Load or scan files before checking for missing covers.", "AniDB Covers", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "Load or scan files before checking for missing covers.", "Missing Covers", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -4617,14 +4714,14 @@ namespace SameEpisodeDuplicateFinder
                                  .ToList();
             if (missing.Count == 0)
             {
-                MessageBox.Show(this, "No missing series covers were found.", "AniDB Covers", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(this, "No missing series covers were found.", "Missing Covers", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             var confirm = MessageBox.Show(
                 this,
-                string.Format("Fetch AniDB poster art for {0:N0} series with missing local covers?\r\n\r\nImages will be saved as folder.jpg beside the first loaded file for each series.", missing.Count),
-                "AniDB Covers",
+                string.Format("Fetch poster art for {0:N0} series with missing local covers?\r\n\r\nAniDB will be tried first; TVDB and TMDB will be used as backups when configured. Images will be saved as folder.jpg beside the first loaded file for each series.", missing.Count),
+                "Missing Covers",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
             if (confirm != DialogResult.Yes)
@@ -4632,7 +4729,7 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            SetBusy(true, "Fetching AniDB covers...");
+            SetBusy(true, "Fetching missing covers...");
             var worker = new BackgroundWorker();
             worker.WorkerReportsProgress = true;
             worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
@@ -4646,31 +4743,61 @@ namespace SameEpisodeDuplicateFinder
                 {
                     ThrowIfCancellationRequested(delegate { return cancelRequested; });
                     var group = missing[i];
-                    worker.ReportProgress(0, string.Format("AniDB cover {0:N0}/{1:N0}: {2}", i + 1, missing.Count, group.Key));
+                    worker.ReportProgress(0, string.Format("Cover lookup {0:N0}/{1:N0}: {2}", i + 1, missing.Count, group.Key));
 
                     var targetFolder = GetSeriesCoverTargetFolder(group);
                     try
                     {
                         var match = GetAniDbMatchForCover(null, settings, group.Key, group);
-                        if (match == null || !match.Found || string.IsNullOrWhiteSpace(match.PictureFile))
-                        {
-                            skipped++;
-                            AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
-                        }
-                        else if (string.IsNullOrWhiteSpace(targetFolder))
+                        if (string.IsNullOrWhiteSpace(targetFolder))
                         {
                             skipped++;
                         }
-                        else
+                        else if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                         {
                             DownloadAniDbPicture(match.PictureFile, Path.Combine(targetFolder, "folder.jpg"));
                             saved++;
                         }
+                        else
+                        {
+                            string fallbackMessage;
+                            if (TryDownloadFallbackCover(group.Key, Path.Combine(targetFolder, "folder.jpg"), out fallbackMessage))
+                            {
+                                saved++;
+                            }
+                            else
+                            {
+                                skipped++;
+                                if (!string.IsNullOrWhiteSpace(fallbackMessage))
+                                {
+                                    failures.Add(group.Key + " fallback: " + fallbackMessage);
+                                }
+                                AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
-                        failures.Add(group.Key + ": " + ex.Message);
-                        AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
+                        var savedByFallback = false;
+                        if (!string.IsNullOrWhiteSpace(targetFolder))
+                        {
+                            string fallbackMessage;
+                            savedByFallback = TryDownloadFallbackCover(group.Key, Path.Combine(targetFolder, "folder.jpg"), out fallbackMessage);
+                            if (!savedByFallback && !string.IsNullOrWhiteSpace(fallbackMessage))
+                            {
+                                failures.Add(group.Key + " fallback: " + fallbackMessage);
+                            }
+                        }
+
+                        if (savedByFallback)
+                        {
+                            saved++;
+                        }
+                        else
+                        {
+                            failures.Add(group.Key + ": " + ex.Message);
+                            AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
+                        }
                     }
 
                     if (i + 1 < missing.Count)
@@ -4949,6 +5076,70 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
+        private bool TryDownloadFallbackCover(string title, string targetPath, out string message)
+        {
+            message = "";
+            string tvDbMessage;
+            if (TryDownloadTvDbCover(title, targetPath, out tvDbMessage))
+            {
+                message = "TVDB: " + tvDbMessage;
+                return true;
+            }
+
+            string tmDbMessage;
+            if (TryDownloadTmDbCover(title, targetPath, out tmDbMessage))
+            {
+                message = "TMDB: " + tmDbMessage;
+                return true;
+            }
+
+            message = string.Join("; ", new[] { "TVDB: " + tvDbMessage, "TMDB: " + tmDbMessage }.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
+            return false;
+        }
+
+        private bool TryDownloadTvDbCover(string title, string targetPath, out string message)
+        {
+            message = "";
+            var settings = TvDbSettingsStore.Load();
+            if (!settings.HasApiKey)
+            {
+                message = "TVDB API key is not configured.";
+                return false;
+            }
+
+            try
+            {
+                var client = new TvDbClient(settings);
+                return client.TryDownloadSeriesCover(title, targetPath, out message);
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
+
+        private bool TryDownloadTmDbCover(string title, string targetPath, out string message)
+        {
+            message = "";
+            var settings = TmDbSettingsStore.Load();
+            if (!settings.HasReadAccessToken)
+            {
+                message = "TMDB read access token is not configured.";
+                return false;
+            }
+
+            try
+            {
+                var client = new TmDbClient(settings);
+                return client.TryDownloadSeriesCover(title, targetPath, out message);
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                return false;
+            }
+        }
         private string GetSeriesCoverTargetFolder(IEnumerable<EpisodeFile> files)
         {
             var first = files.FirstOrDefault();
@@ -4969,24 +5160,74 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            SetBusy(true, "Logging in to AniDB...");
+            SetBusy(true, "Looking up metadata...");
             var worker = new BackgroundWorker();
             worker.WorkerReportsProgress = true;
             worker.DoWork += delegate(object workerSender, DoWorkEventArgs args)
             {
                 var matches = new Dictionary<string, AniDbAnimeResult>(StringComparer.OrdinalIgnoreCase);
-                using (var client = new AniDbClient(settings.LocalPort))
+                var tvDbSettings = TvDbSettingsStore.Load();
+                var tvDbClient = tvDbSettings.HasApiKey ? new TvDbClient(tvDbSettings) : null;
+                var tmDbSettings = TmDbSettingsStore.Load();
+                var tmDbClient = tmDbSettings.HasReadAccessToken ? new TmDbClient(tmDbSettings) : null;
+                try
                 {
-                    client.Authenticate(settings);
+                    using (var client = new AniDbClient(settings.LocalPort))
+                    {
+                        client.Authenticate(settings);
+                        for (var i = 0; i < titles.Count; i++)
+                        {
+                            ThrowIfCancellationRequested(delegate { return cancelRequested; });
+                            var title = titles[i];
+                            worker.ReportProgress(0, string.Format("AniDB lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                            var match = client.LookupAnime(title);
+                            if ((match == null || !match.Found) && tvDbClient != null)
+                            {
+                                worker.ReportProgress(0, string.Format("TVDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                                match = tvDbClient.LookupSeries(title).ToMetadataResult();
+                            }
+                            if ((match == null || !match.Found) && tmDbClient != null)
+                            {
+                                worker.ReportProgress(0, string.Format("TMDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                                match = tmDbClient.LookupSeries(title).ToMetadataResult();
+                            }
+                            matches[title] = match;
+                            if (i + 1 < titles.Count)
+                            {
+                                Thread.Sleep(2200);
+                            }
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    if (tvDbClient == null && tmDbClient == null)
+                    {
+                        throw;
+                    }
+
+                    matches.Clear();
                     for (var i = 0; i < titles.Count; i++)
                     {
                         ThrowIfCancellationRequested(delegate { return cancelRequested; });
                         var title = titles[i];
-                        worker.ReportProgress(0, string.Format("AniDB lookup {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
-                        matches[title] = client.LookupAnime(title);
+                        if (tvDbClient != null)
+                        {
+                            worker.ReportProgress(0, string.Format("TVDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                            var fallbackMatch = tvDbClient.LookupSeries(title).ToMetadataResult();
+                            if (fallbackMatch.Found || tmDbClient == null)
+                            {
+                                matches[title] = fallbackMatch;
+                            }
+                        }
+                        if (!matches.ContainsKey(title) && tmDbClient != null)
+                        {
+                            worker.ReportProgress(0, string.Format("TMDB fallback {0:N0}/{1:N0}: {2}", i + 1, titles.Count, title));
+                            matches[title] = tmDbClient.LookupSeries(title).ToMetadataResult();
+                        }
                         if (i + 1 < titles.Count)
                         {
-                            Thread.Sleep(2200);
+                            Thread.Sleep(1200);
                         }
                     }
                 }
@@ -4995,7 +5236,7 @@ namespace SameEpisodeDuplicateFinder
             };
             worker.ProgressChanged += delegate(object workerSender, ProgressChangedEventArgs args)
             {
-                UpdateActivity(args.UserState as string ?? "Looking up AniDB matches...", false);
+                UpdateActivity(args.UserState as string ?? "Looking up metadata matches...", false);
             };
             worker.RunWorkerCompleted += delegate(object workerSender, RunWorkerCompletedEventArgs args)
             {
@@ -5019,7 +5260,7 @@ namespace SameEpisodeDuplicateFinder
                     ApplyAniDbMatches(matches);
                     var found = matches.Values.Count(x => x.Found);
                     var failed = matches.Values.Where(x => !x.Found && !string.IsNullOrWhiteSpace(x.Error)).Take(5).ToList();
-                    var message = string.Format("AniDB lookup complete. {0:N0}/{1:N0} series matched.", found, matches.Count);
+                    var message = string.Format("Metadata lookup complete. {0:N0}/{1:N0} series matched.", found, matches.Count);
                     if (failed.Count > 0)
                     {
                         message += " First misses: " + string.Join("; ", failed.Select(x => x.QueryTitle + " - " + x.Error).ToArray());
@@ -6210,7 +6451,10 @@ namespace SameEpisodeDuplicateFinder
             fileExportMenuItem.Enabled = !busy && hasCandidateData;
             deleteButton.Enabled = !busy && hasCandidateData;
             toolsClearMarksMenuItem.Enabled = !busy && hasCandidateData;
-            viewReadyMenuItem.Enabled = !busy && hasCandidateData;
+            viewCandidatesMenuItem.Enabled = !busy;
+            viewReadyMenuItem.Enabled = !busy && !candidatesPanelCollapsed;
+            viewRestoreWorkspaceMenuItem.Enabled = !busy && (candidatesPanelCollapsed || deletionPanelCollapsed);
+            UpdateWorkspaceMenuState();
             toolsAutoMarkMenuItem.Enabled = !busy && hasCandidateData;
             toolsAutoMarkLevelMenuItem.Enabled = !busy;
             toolsMoveToNameFoldersMenuItem.Enabled = !busy && hasScannedData;
@@ -6226,14 +6470,15 @@ namespace SameEpisodeDuplicateFinder
         {
             if (allRows.Count > 0 || rows.Count > 0 || deletionRows.Count > 0 || allScannedRows.Count > 0)
             {
-                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "AniDB Lookup" : "AniDB Login";
+                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "Metadata Lookup" : "AniDB Login";
             }
             else
             {
-                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "AniDB Ready" : "AniDB Login";
+                toolsAniDbMenuItem.Text = savedAniDbSettings.HasCredentials ? "Metadata Ready" : "AniDB Login";
             }
             toolsAniDbMenuItem.Enabled = !busy;
             toolsAniDbCoversMenuItem.Enabled = !busy && (allRows.Count > 0 || rows.Count > 0 || deletionRows.Count > 0 || allScannedRows.Count > 0);
+            UpdateDashboard();
         }
     }
 

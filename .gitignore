@@ -29,3 +29,9 @@ SameEpisodeDuplicateFinder.anidb
 *.user
 Thumbs.db
 desktop.ini
+
+# Local TVDB API settings
+SameEpisodeDuplicateFinder.tvdb
+
+# Local TMDB API settings
+SameEpisodeDuplicateFinder.tmdb
