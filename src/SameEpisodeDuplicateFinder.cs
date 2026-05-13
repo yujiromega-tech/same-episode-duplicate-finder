@@ -1486,6 +1486,8 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label shellTvDbBadgeLabel;
         private readonly Label shellTmDbBadgeLabel;
         private readonly Label shellInspectorTitleLabel;
+        private readonly Label inspectorPreviewLabel;
+        private readonly PictureBox inspectorPreviewBox;
         private readonly Button inspectorKeepButton;
         private readonly Button inspectorDeleteButton;
         private readonly Button inspectorIgnoreButton;
@@ -1548,6 +1550,10 @@ namespace SameEpisodeDuplicateFinder
         private bool selectedFeedPanelCollapsed;
         private string activeShellSection;
         private bool restoringColumnLayout;
+        private readonly object shellCoverFetchLock;
+        private readonly HashSet<string> shellCoverFetchAttempted;
+        private readonly HashSet<string> shellCoverFetchInProgress;
+        private DateTime lastShellCoverFetchUtc;
         private DateTime nextMonitorCheckUtc;
         private TcpListener selectedFeedServer;
         private Thread selectedFeedServerThread;
@@ -1581,6 +1587,10 @@ namespace SameEpisodeDuplicateFinder
             episodeSearchSource.DataSource = episodeSearchRows;
             selectedFeedSource = new BindingSource();
             selectedFeedSource.DataSource = selectedFeedRows;
+            shellCoverFetchLock = new object();
+            shellCoverFetchAttempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            shellCoverFetchInProgress = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            lastShellCoverFetchUtc = DateTime.MinValue;
             monitorTimer = new System.Windows.Forms.Timer();
             monitorTimer.Interval = 60000;
             monitorTimer.Tick += MonitorTimer_Tick;
@@ -2224,6 +2234,17 @@ namespace SameEpisodeDuplicateFinder
             shellInspectorTitleLabel.Font = new Font(Font.FontFamily, 10F, FontStyle.Bold);
             shellInspectorTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
 
+            inspectorPreviewLabel = new Label();
+            inspectorPreviewLabel.Text = "Episode Preview";
+            inspectorPreviewLabel.Dock = DockStyle.Fill;
+            inspectorPreviewLabel.Font = new Font(Font.FontFamily, 9F, FontStyle.Bold);
+            inspectorPreviewLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+            inspectorPreviewBox = new PictureBox();
+            inspectorPreviewBox.Dock = DockStyle.Fill;
+            inspectorPreviewBox.SizeMode = PictureBoxSizeMode.Zoom;
+            inspectorPreviewBox.BorderStyle = BorderStyle.FixedSingle;
+
             inspectorKeepButton = new Button();
             inspectorKeepButton.Text = "Keep This File";
             inspectorKeepButton.Dock = DockStyle.Fill;
@@ -2597,19 +2618,23 @@ namespace SameEpisodeDuplicateFinder
             inspectorPanel.Dock = DockStyle.Fill;
             inspectorPanel.Padding = new Padding(10, 8, 10, 8);
             inspectorPanel.ColumnCount = 1;
-            inspectorPanel.RowCount = 6;
+            inspectorPanel.RowCount = 8;
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             inspectorPanel.Controls.Add(shellInspectorTitleLabel, 0, 0);
             inspectorPanel.Controls.Add(detailsGroup, 0, 1);
-            inspectorPanel.Controls.Add(inspectorKeepButton, 0, 2);
-            inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 3);
-            inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 4);
-            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 5);
+            inspectorPanel.Controls.Add(inspectorPreviewLabel, 0, 2);
+            inspectorPanel.Controls.Add(inspectorPreviewBox, 0, 3);
+            inspectorPanel.Controls.Add(inspectorKeepButton, 0, 4);
+            inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 5);
+            inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 6);
+            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 7);
 
             workspacePanel = new TableLayoutPanel();
             workspacePanel.Dock = DockStyle.Fill;
@@ -3298,6 +3323,10 @@ namespace SameEpisodeDuplicateFinder
             {
                 ((ListView)control).BackColor = PanelBackColor;
                 ((ListView)control).ForeColor = PrimaryTextColor;
+            }
+            else if (control is PictureBox)
+            {
+                control.BackColor = PanelBackColor;
             }
             else if (control is DataGridView)
             {
@@ -4144,6 +4173,160 @@ namespace SameEpisodeDuplicateFinder
             {
                 oldImage.Dispose();
             }
+
+            if (string.IsNullOrWhiteSpace(coverPath) && !string.IsNullOrWhiteSpace(selectedTitle) && coverRows.Count > 0)
+            {
+                QueueShellSeriesFetch(selectedTitle, coverRows);
+            }
+        }
+
+        private void QueueShellSeriesFetch(string title, List<EpisodeFile> seriesRows)
+        {
+            if (busyState || string.IsNullOrWhiteSpace(title) || seriesRows == null || seriesRows.Count == 0)
+            {
+                return;
+            }
+
+            var key = title.Trim();
+            lock (shellCoverFetchLock)
+            {
+                if (shellCoverFetchAttempted.Contains(key) || shellCoverFetchInProgress.Contains(key))
+                {
+                    return;
+                }
+
+                shellCoverFetchAttempted.Add(key);
+                shellCoverFetchInProgress.Add(key);
+            }
+
+            shellSeriesMetaLabel.Text = shellSeriesMetaLabel.Text + " | Cover: checking";
+            UpdateActivity("Queued selected-series metadata and cover fetch: " + title, true);
+
+            var fetchRows = seriesRows.ToList();
+            var worker = new BackgroundWorker();
+            worker.DoWork += delegate(object sender, DoWorkEventArgs args)
+            {
+                args.Result = FetchShellSeriesMetadataAndCover(key, fetchRows);
+            };
+            worker.RunWorkerCompleted += delegate(object sender, RunWorkerCompletedEventArgs args)
+            {
+                lock (shellCoverFetchLock)
+                {
+                    shellCoverFetchInProgress.Remove(key);
+                }
+
+                if (args.Error != null)
+                {
+                    UpdateActivity("Selected-series fetch failed for " + key + ": " + args.Error.Message, true);
+                    UpdateShellSeriesHeader();
+                    return;
+                }
+
+                var result = args.Result as ShellSeriesFetchResult;
+                if (result == null)
+                {
+                    UpdateShellSeriesHeader();
+                    return;
+                }
+
+                if (result.MetadataMatch != null && result.MetadataMatch.Found)
+                {
+                    ApplyAniDbMatches(new Dictionary<string, AniDbAnimeResult>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { key, result.MetadataMatch }
+                    });
+                }
+
+                UpdateShellSeriesHeader();
+                UpdateInspectorPreviewForTitle(GetSelectedShellSeriesTitle(GetCurrentCandidateFile()));
+                UpdateActivity(result.Message, true);
+            };
+            worker.RunWorkerAsync();
+        }
+
+        private ShellSeriesFetchResult FetchShellSeriesMetadataAndCover(string title, List<EpisodeFile> seriesRows)
+        {
+            var result = new ShellSeriesFetchResult { Title = title };
+            var targetFolder = GetSeriesCoverTargetFolder(seriesRows);
+
+            WaitForShellCoverFetchSlot();
+
+            try
+            {
+                result.MetadataMatch = LookupAniDbMetadata(title);
+            }
+            catch (Exception ex)
+            {
+                result.MetadataError = ex.Message;
+            }
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(targetFolder))
+                {
+                    result.CoverMessage = "no writable local folder was available for folder.jpg";
+                }
+                else
+                {
+                    var targetPath = Path.Combine(targetFolder, "folder.jpg");
+                    var match = result.MetadataMatch != null && result.MetadataMatch.Found
+                        ? result.MetadataMatch
+                        : GetAniDbMatchForCover(title, seriesRows);
+                    if (match != null && match.Found && string.IsNullOrWhiteSpace(match.PictureFile))
+                    {
+                        match.PictureFile = AniDbClient.GetAnimePictureFile(match.AniDbId);
+                    }
+
+                    if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
+                    {
+                        DownloadAniDbPicture(match.PictureFile, targetPath);
+                        result.CoverSaved = true;
+                        result.CoverMessage = "saved AniDB cover";
+                    }
+                    else
+                    {
+                        string fallbackMessage;
+                        result.CoverSaved = TryDownloadFallbackCover(title, targetPath, out fallbackMessage);
+                        result.CoverMessage = result.CoverSaved ? fallbackMessage : DisplayOrDash(fallbackMessage);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.CoverMessage = ex.Message;
+            }
+
+            result.Message = BuildShellSeriesFetchMessage(result);
+            return result;
+        }
+
+        private void WaitForShellCoverFetchSlot()
+        {
+            var delay = TimeSpan.Zero;
+            lock (shellCoverFetchLock)
+            {
+                var elapsed = DateTime.UtcNow - lastShellCoverFetchUtc;
+                if (elapsed < TimeSpan.FromSeconds(2))
+                {
+                    delay = TimeSpan.FromSeconds(2) - elapsed;
+                }
+
+                lastShellCoverFetchUtc = DateTime.UtcNow + delay;
+            }
+
+            if (delay > TimeSpan.Zero)
+            {
+                Thread.Sleep(delay);
+            }
+        }
+
+        private static string BuildShellSeriesFetchMessage(ShellSeriesFetchResult result)
+        {
+            var metadata = result.MetadataMatch != null && result.MetadataMatch.Found
+                ? "metadata matched " + DisplayOrDash(result.MetadataMatch.Title)
+                : "metadata " + DisplayOrDash(result.MetadataError ?? (result.MetadataMatch == null ? "" : result.MetadataMatch.Error));
+            var cover = result.CoverSaved ? result.CoverMessage : "cover " + DisplayOrDash(result.CoverMessage);
+            return "Selected-series fetch: " + result.Title + " | " + metadata + " | " + cover;
         }
 
         private string GetSelectedShellSeriesTitle(EpisodeFile selectedFile)
@@ -6365,6 +6548,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 detailsBox.Links.Clear();
                 detailsBox.Text = "Select a file to see details.";
+                UpdateInspectorPreviewForTitle("");
                 return;
             }
 
@@ -6377,6 +6561,7 @@ namespace SameEpisodeDuplicateFinder
                 "Metadata: " + ShortenMiddle(DisplayOrDash(file.AniDbDisplay), 170) + Environment.NewLine +
                 "Location: " + ShortenMiddle(DisplayOrDash(file.FileLocation), 170) + Environment.NewLine +
                 "File: " + ShortenMiddle(DisplayOrDash(file.FileName), 170);
+            UpdateInspectorPreview(file);
         }
 
         private void UpdateDetails(MissingEpisodeRow row)
@@ -6392,6 +6577,7 @@ namespace SameEpisodeDuplicateFinder
                 "Scope: " + DisplayOrDash(row.Scope) + " | Missing: " + DisplayOrDash(row.MissingEpisodes) + " | Present: " + DisplayOrDash(row.PresentRange) + Environment.NewLine +
                 "Known local episodes: " + row.KnownEpisodes.ToString("N0") + " | Missing count: " + row.MissingCount.ToString("N0") + " | Locations: " + row.LocationCount.ToString("N0") + Environment.NewLine +
                 "Search query: " + DisplayOrDash(GetSearchQuery(row));
+            UpdateInspectorPreviewForTitle(row.Title);
         }
 
         private void UpdateDetails(EpisodeSearchResult row)
@@ -6418,6 +6604,7 @@ namespace SameEpisodeDuplicateFinder
                     detailsBox.Links.Add(start, "Open magnet".Length, row.MagnetLink);
                 }
             }
+            UpdateInspectorPreviewForTitle(row.SeriesTitle);
         }
 
         private void UpdateDetails(SelectedSearchFeedItem row)
@@ -6446,12 +6633,48 @@ namespace SameEpisodeDuplicateFinder
                     detailsBox.Links.Add(start, linkText.Length, target);
                 }
             }
+            UpdateInspectorPreviewForTitle(row.SeriesTitle);
+        }
+
+        private void UpdateInspectorPreview(EpisodeFile file)
+        {
+            UpdateInspectorPreviewForTitle(file == null ? "" : file.Title);
+        }
+
+        private void UpdateInspectorPreviewForTitle(string title)
+        {
+            if (inspectorPreviewBox == null)
+            {
+                return;
+            }
+
+            var previewTitle = string.IsNullOrWhiteSpace(title) ? GetSelectedShellSeriesTitle(GetCurrentCandidateFile()) : title;
+            var rowsForTitle = string.IsNullOrWhiteSpace(previewTitle)
+                ? new List<EpisodeFile>()
+                : GetShellSeriesRows(previewTitle, null);
+            var coverPath = rowsForTitle.Count == 0 ? "" : FindSeriesCoverPath(rowsForTitle);
+            var oldImage = inspectorPreviewBox.Image;
+            inspectorPreviewBox.Image = CreateSeriesCoverImage(string.IsNullOrWhiteSpace(previewTitle) ? "Preview" : previewTitle, coverPath);
+            if (oldImage != null)
+            {
+                oldImage.Dispose();
+            }
         }
 
         private string GetSearchQuery(MissingEpisodeRow row)
         {
             var missingEpisode = MissingEpisodeAnalyzer.ToSearchMissingEpisode(row);
             return missingEpisode == null ? "" : missingEpisode.SearchQuery;
+        }
+
+        private sealed class ShellSeriesFetchResult
+        {
+            public string Title { get; set; }
+            public AniDbAnimeResult MetadataMatch { get; set; }
+            public string MetadataError { get; set; }
+            public bool CoverSaved { get; set; }
+            public string CoverMessage { get; set; }
+            public string Message { get; set; }
         }
 
         private static string DisplayOrDash(string value)
