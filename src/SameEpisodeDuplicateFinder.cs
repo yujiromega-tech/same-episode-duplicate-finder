@@ -2069,7 +2069,7 @@ namespace SameEpisodeDuplicateFinder
             AddEpisodeSearchColumn("SeriesTitle", "Series", 140);
             AddEpisodeSearchColumn("MissingEpisode", "Ep", 52);
             AddEpisodeSearchColumn("SearchQuery", "Search Query", 190);
-            AddEpisodeSearchColumn("IsBatchResult", "Batch", 58);
+            AddEpisodeSearchColumn("IsBatchResult", "Full Season", 82);
             AddEpisodeSearchColumn("Title", "Result", 300);
             AddEpisodeSearchColumn("Size", "Size", 80);
             AddEpisodeSearchColumn("Seeders", "Seed", 58);
@@ -2094,7 +2094,7 @@ namespace SameEpisodeDuplicateFinder
             AddSelectedFeedColumn("SeriesTitle", "Series", 150);
             AddSelectedFeedColumn("MissingEpisode", "Ep", 52);
             AddSelectedFeedColumn("Provider", "Provider", 68);
-            AddSelectedFeedColumn("IsBatchResult", "Batch", 58);
+            AddSelectedFeedColumn("IsBatchResult", "Full Season", 82);
             AddSelectedFeedColumn("Title", "Selected Result", 260);
             AddSelectedFeedColumn("Size", "Size", 78);
             AddSelectedFeedColumn("Seeders", "Seed", 56);
@@ -5330,14 +5330,14 @@ namespace SameEpisodeDuplicateFinder
 
             if (result.IsBatchResult)
             {
-                PrepareExistingSeriesFilesForBatchReplacement(result.SeriesTitle);
+                PrepareExistingSeriesFilesForFullSeasonReplacement(result.SeriesTitle);
             }
 
             ShowSelectedFeedPanel();
             SaveAndRefreshSelectedFeed();
         }
 
-        private void PrepareExistingSeriesFilesForBatchReplacement(string seriesTitle)
+        private void PrepareExistingSeriesFilesForFullSeasonReplacement(string seriesTitle)
         {
             if (string.IsNullOrWhiteSpace(seriesTitle))
             {
@@ -5354,7 +5354,7 @@ namespace SameEpisodeDuplicateFinder
                 .ToList();
             if (existingLocalFiles.Count == 0)
             {
-                UpdateActivity("Batch result added; no existing local files were found to prep for removal: " + seriesTitle, true);
+                UpdateActivity("Full-season result added; no existing local files were found to prep for removal: " + seriesTitle, true);
                 return;
             }
 
@@ -5385,16 +5385,16 @@ namespace SameEpisodeDuplicateFinder
                 candidate.Delete = true;
                 candidate.Recommendation = "Delete";
                 candidate.Confidence = "High";
-                candidate.ReviewStatus = "Batch replacement pending";
-                candidate.RecommendationReason = "A complete-series batch result was added to the selected RSS feed.";
+                candidate.ReviewStatus = "Full-season replacement pending";
+                candidate.RecommendationReason = "A complete-series or full-season result was added to the selected RSS feed.";
             }
 
             RefreshReviewGrids();
             RefreshDeletionRows();
-            UpdateSummary(string.Format("Batch result added for {0}. Prepared {1:N0} existing local file(s) for removal.", seriesTitle, existingLocalFiles.Count));
+            UpdateSummary(string.Format("Full-season result added for {0}. Prepared {1:N0} existing local file(s) for removal.", seriesTitle, existingLocalFiles.Count));
             if (added > 0)
             {
-                UpdateActivity(string.Format("Added {0:N0} non-duplicate local file(s) to Ready to Remove for batch replacement review.", added), true);
+                UpdateActivity(string.Format("Added {0:N0} non-duplicate local file(s) to Ready to Remove for full-season replacement review.", added), true);
             }
         }
 
@@ -6762,7 +6762,7 @@ namespace SameEpisodeDuplicateFinder
                 "Series: " + DisplayOrDash(row.SeriesTitle) + Environment.NewLine +
                 "Episode: " + DisplayOrDash(row.MissingEpisode) + Environment.NewLine +
                 "Provider: " + DisplayOrDash(row.Provider) + Environment.NewLine +
-                "Batch: " + (row.IsBatchResult ? "Yes" : "No");
+                "Full season: " + (row.IsBatchResult ? "Yes" : "No");
             UpdateInspectorPreviewForTitle(row.SeriesTitle);
         }
 
@@ -6796,7 +6796,7 @@ namespace SameEpisodeDuplicateFinder
                 "Series: " + DisplayOrDash(row.SeriesTitle) + Environment.NewLine +
                 "Episode: " + DisplayOrDash(row.MissingEpisode) + Environment.NewLine +
                 "Provider: " + DisplayOrDash(row.Provider) + Environment.NewLine +
-                "Batch: " + (row.IsBatchResult ? "Yes" : "No");
+                "Full season: " + (row.IsBatchResult ? "Yes" : "No");
             UpdateInspectorPreviewForTitle(row.SeriesTitle);
         }
 
@@ -8486,7 +8486,7 @@ namespace SameEpisodeDuplicateFinder
                 "Missing: " + DisplayOrDash(item.MissingEpisode),
                 "Query: " + DisplayOrDash(item.SearchQuery),
                 "Provider: " + DisplayOrDash(item.Provider),
-                "Batch: " + (item.IsBatchResult ? "Yes" : "No"),
+                "Full season: " + (item.IsBatchResult ? "Yes" : "No"),
                 "Size: " + DisplayOrDash(item.Size),
                 "Seeders: " + item.Seeders.ToString("N0")
             });

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace SameEpisodeDuplicateFinder.Tests
 {
@@ -25,7 +26,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
-            Run("episode search triggers batch fallback after weak seeded results", EpisodeSearchTriggersBatchFallbackAfterWeakSeededResults);
+            Run("episode search triggers full-season fallback after weak seeded results", EpisodeSearchTriggersFullSeasonFallbackAfterWeakSeededResults);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
             Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
             Run("network paths are detected before deletion", NetworkPathsAreDetectedBeforeDeletion);
@@ -292,7 +293,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertEqual("", EpisodeSearchService.BuildMagnetLinkForTest("", "Air Gear 03"), "empty hash");
         }
 
-        private static void EpisodeSearchTriggersBatchFallbackAfterWeakSeededResults()
+        private static void EpisodeSearchTriggersFullSeasonFallbackAfterWeakSeededResults()
         {
             var weak = new List<EpisodeSearchResult>
             {
@@ -313,23 +314,26 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(EpisodeSearchService.ShouldSearchBatchFallback(weak), "more than three zero-seed results should trigger batch search");
             AssertTrue(!EpisodeSearchService.ShouldSearchBatchFallback(notWeak), "three zero-seed results should not trigger batch search");
 
-            var query = EpisodeSearchService.BuildBatchSearchQuery(
+            var queries = EpisodeSearchService.BuildFullSeasonSearchQueries(
                 new MissingEpisode { SeriesTitle = "Bad Girl", Scope = "S01", SearchQuery = "Bad Girl 03" },
                 "SubsPlease",
                 "1080p");
-            AssertContains(query, "Bad Girl", "batch query series title");
-            AssertContains(query, "S01", "batch query scope");
-            AssertContains(query, "batch", "batch query keyword");
-            AssertContains(query, "SubsPlease", "batch query group");
-            AssertContains(query, "1080p", "batch query resolution");
+            AssertTrue(queries.Count >= 4, "full-season search should try multiple query shapes");
+            AssertContains(queries[0], "Bad Girl", "full-season query series title");
+            AssertContains(queries[0], "S01", "full-season query scope");
+            AssertContains(queries[0], "SubsPlease", "full-season query group");
+            AssertContains(queries[0], "1080p", "full-season query resolution");
+            AssertTrue(queries.Any(x => x.Contains("complete")), "full-season search should try complete keyword");
+            AssertTrue(queries.Any(x => x.Contains("season")), "full-season search should try season keyword");
+            AssertTrue(queries.Any(x => x.Contains("batch")), "full-season search may still try batch keyword");
 
-            query = EpisodeSearchService.BuildBatchSearchQuery(
+            var query = EpisodeSearchService.BuildBatchSearchQuery(
                 new MissingEpisode { SeriesTitle = "Bad Girl", Scope = "Main", SearchQuery = "Bad Girl 03" },
                 "",
                 "720p");
-            AssertContains(query, "Bad Girl", "main batch query series title");
-            AssertTrue(!query.Contains("Main"), "main scope should be omitted from batch query");
-            AssertContains(query, "batch", "main batch query keyword");
+            AssertContains(query, "Bad Girl", "main full-season query series title");
+            AssertTrue(!query.Contains("Main"), "main scope should be omitted from full-season query");
+            AssertContains(query, "720p", "main full-season query resolution");
         }
 
         private static void MergedScanRecomputesDuplicateGroupsAcrossRoots()

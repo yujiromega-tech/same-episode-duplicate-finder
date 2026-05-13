@@ -29,17 +29,23 @@ namespace SameEpisodeDuplicateFinder
             }
 
             var results = SearchNyaa(string.Join(" ", queryParts.ToArray()), 30);
-            if (ShouldSearchBatchFallback(results))
+            if (ShouldSearchFullSeasonFallback(results))
             {
-                var batchQuery = BuildBatchSearchQuery(episode, releaseGroup, resolution);
-                var batchResults = SearchNyaa(batchQuery, 10);
-                foreach (var result in batchResults)
+                var fallbackResults = new List<EpisodeSearchResult>();
+                foreach (var query in BuildFullSeasonSearchQueries(episode, releaseGroup, resolution))
                 {
-                    result.Provider = "Nyaa Batch";
-                    result.IsBatchResult = true;
+                    foreach (var result in SearchNyaa(query, 10))
+                    {
+                        result.Provider = "Nyaa Full Season";
+                        result.IsBatchResult = true;
+                        fallbackResults.Add(result);
+                    }
                 }
 
-                results.AddRange(batchResults);
+                results.AddRange(
+                    fallbackResults
+                        .GroupBy(x => string.IsNullOrWhiteSpace(x.MagnetLink) ? x.Link : x.MagnetLink, StringComparer.OrdinalIgnoreCase)
+                        .Select(g => g.First()));
             }
 
             return results;
@@ -47,10 +53,31 @@ namespace SameEpisodeDuplicateFinder
 
         internal static bool ShouldSearchBatchFallback(IEnumerable<EpisodeSearchResult> results)
         {
+            return ShouldSearchFullSeasonFallback(results);
+        }
+
+        internal static bool ShouldSearchFullSeasonFallback(IEnumerable<EpisodeSearchResult> results)
+        {
             return (results ?? Enumerable.Empty<EpisodeSearchResult>()).Count(x => x != null && x.Seeders == 0) > 3;
         }
 
         internal static string BuildBatchSearchQuery(MissingEpisode episode, string releaseGroup, string resolution)
+        {
+            return BuildFullSeasonSearchQueries(episode, releaseGroup, resolution).FirstOrDefault() ?? "";
+        }
+
+        internal static List<string> BuildFullSeasonSearchQueries(MissingEpisode episode, string releaseGroup, string resolution)
+        {
+            var baseParts = BuildFullSeasonBaseQueryParts(episode, releaseGroup, resolution);
+            var queries = new List<string>();
+            AddFullSeasonQuery(queries, baseParts, "");
+            AddFullSeasonQuery(queries, baseParts, "complete");
+            AddFullSeasonQuery(queries, baseParts, "season");
+            AddFullSeasonQuery(queries, baseParts, "batch");
+            return queries;
+        }
+
+        private static List<string> BuildFullSeasonBaseQueryParts(MissingEpisode episode, string releaseGroup, string resolution)
         {
             var queryParts = new List<string>();
             if (episode != null && !string.IsNullOrWhiteSpace(episode.SeriesTitle))
@@ -62,7 +89,6 @@ namespace SameEpisodeDuplicateFinder
                 queryParts.Add(episode.Scope.Trim());
             }
 
-            queryParts.Add("batch");
             if (!string.IsNullOrWhiteSpace(releaseGroup))
             {
                 queryParts.Add(releaseGroup.Trim());
@@ -72,7 +98,22 @@ namespace SameEpisodeDuplicateFinder
                 queryParts.Add(resolution.Trim());
             }
 
-            return string.Join(" ", queryParts.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
+            return queryParts;
+        }
+
+        private static void AddFullSeasonQuery(List<string> queries, List<string> baseParts, string keyword)
+        {
+            var parts = new List<string>(baseParts ?? new List<string>());
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                parts.Add(keyword.Trim());
+            }
+
+            var query = string.Join(" ", parts.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
+            if (!string.IsNullOrWhiteSpace(query) && !queries.Contains(query, StringComparer.OrdinalIgnoreCase))
+            {
+                queries.Add(query);
+            }
         }
 
         internal static bool ShouldIncludeBatchScope(string scope)
