@@ -153,6 +153,9 @@ namespace SameEpisodeDuplicateFinder
 
     internal sealed class EpisodeSearchResult
     {
+        public string SeriesTitle { get; set; }
+        public string MissingEpisode { get; set; }
+        public string SearchQuery { get; set; }
         public string Provider { get; set; }
         public string Title { get; set; }
         public string Size { get; set; }

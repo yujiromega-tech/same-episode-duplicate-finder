@@ -34,6 +34,11 @@ namespace SameEpisodeDuplicateFinder
             }
             else
             {
+                if (Regex.IsMatch(baseName, @"\s+-\s+(?:19|20)\d{2}\s+\p{L}", RegexOptions.IgnoreCase))
+                {
+                    return false;
+                }
+
                 var anime = Regex.Match(baseName, @"^(?:\[[^\]]+\]\s*)?(?<title>.+)\s+-\s+(?<episode>\d{1,4})(?:\s|\[|\(|$)");
                 if (anime.Success)
                 {
@@ -89,6 +94,7 @@ namespace SameEpisodeDuplicateFinder
             }
 
             var normalized = Regex.Replace(title, @"[._-]+", " ");
+            normalized = Regex.Replace(normalized, @"\(\s*(?:19|20)\d{2}\s*\)", " ");
             normalized = Regex.Replace(normalized, @"\s+", " ");
             return normalized.Trim();
         }

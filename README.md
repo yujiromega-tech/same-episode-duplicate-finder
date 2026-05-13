@@ -46,14 +46,13 @@ This tool is review assistance, not an automatic deletion authority.
 
 ## Requirements
 
-- Windows.
-- .NET Framework 4.x runtime.
-- Optional: AniDB account and registered client name for AniDB lookup.
+- Windows 10 or newer.
+- .NET Framework 4.8 runtime.
 - Optional: FileBot for FileBot-assisted rename/move workflows.
 
 ## Build
 
-This repository includes a simple PowerShell build script that uses the classic .NET Framework compiler included with Windows:
+This repository includes a simple PowerShell build script that uses the classic .NET Framework 4.8 compiler on Windows:
 
 ```powershell
 .\build.ps1
@@ -80,13 +79,13 @@ The tests cover filename parsing, duplicate-group counting, file format filterin
 ## Usage
 
 1. Launch `SameEpisodeDuplicateFinder.exe`.
-2. Choose **File > Browse and Scan...**.
-3. Select a media folder.
+2. Choose **File > Scan...**.
+3. Add one or more media folders.
 4. Review duplicate candidates in the grid.
 5. Use the series panel, search, sorting, and recommendation fields to inspect groups.
-6. Optionally run **Tools > Suggest Best Actions**.
+6. Optionally run **Tools > Review Suggested Actions...**.
 7. Mark only files you are comfortable removing.
-8. Review **Deletion Ready** before pressing Delete.
+8. Review **Ready to Remove** before pressing Delete.
 
 ## Generated Files
 

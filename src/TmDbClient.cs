@@ -237,10 +237,10 @@ namespace SameEpisodeDuplicateFinder
                 var response = ex.Response as HttpWebResponse;
                 if (response != null)
                 {
-                    throw new InvalidOperationException("TMDB request failed: " + (int)response.StatusCode + " " + response.StatusDescription, ex);
+                    throw new InvalidOperationException("TMDB " + ClassifyHttpFailure(response.StatusCode) + ": " + (int)response.StatusCode + " " + response.StatusDescription, ex);
                 }
 
-                throw new InvalidOperationException("TMDB request failed: " + ex.Message, ex);
+                throw new InvalidOperationException("TMDB Network Error: " + ex.Message, ex);
             }
         }
 
@@ -269,12 +269,37 @@ namespace SameEpisodeDuplicateFinder
                 return "";
             }
 
+            if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            {
+                return "https://" + value.Substring("http://".Length);
+            }
+
             if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
                 return value;
             }
 
             return ImageBaseUrl.TrimEnd('/') + "/" + value.TrimStart('/');
+        }
+
+        private static string ClassifyHttpFailure(HttpStatusCode statusCode)
+        {
+            if (statusCode == HttpStatusCode.Unauthorized)
+            {
+                return "Auth Error";
+            }
+
+            if (statusCode == HttpStatusCode.Forbidden)
+            {
+                return "Forbidden";
+            }
+
+            if ((int)statusCode == 429)
+            {
+                return "Rate Limited";
+            }
+
+            return "Network Error";
         }
 
         private static string ExtractYear(string date)

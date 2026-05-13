@@ -13,16 +13,20 @@ namespace SameEpisodeDuplicateFinder.Tests
         {
             Run("filename parsing handles anime release names", FilenameParsingHandlesAnimeReleaseNames);
             Run("filename parsing handles season episode names", FilenameParsingHandlesSeasonEpisodeNames);
+            Run("filename parsing ignores years and ambiguous ranges", FilenameParsingIgnoresYearsAndAmbiguousRanges);
+            Run("filename parsing handles anime part titles", FilenameParsingHandlesAnimePartTitles);
             Run("grouping counts only repeated episode keys", GroupingCountsRepeatedEpisodeKeys);
             Run("file format filter supports ignore and allow-only modes", FileFormatFilterSupportsIgnoreAndAllowOnlyModes);
             Run("scoring prefers resolution, version, then size", ScoringPrefersResolutionVersionThenSize);
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
+            Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
             Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
+            Run("network paths are detected before deletion", NetworkPathsAreDetectedBeforeDeletion);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -54,6 +58,33 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertEqual("Delicious in Dungeon", parsed.Title, "title");
             AssertEqual("S01E12", parsed.Episode, "episode");
             AssertEqual("delicious in dungeon|S01E12", parsed.Key, "group key");
+        }
+
+        private static void FilenameParsingIgnoresYearsAndAmbiguousRanges()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "sedf-tests");
+            var yearFile = CreateScannedFile(root, "Library", "[Group] Series (2006) - 04.mkv", 100);
+            var remasterFile = CreateScannedFile(root, "Library", "Series - 2006 Remaster.mkv", 100);
+            var rangeFile = CreateScannedFile(root, "Library", "Series - 01-02.mkv", 100);
+
+            EpisodeFile parsed;
+            AssertTrue(EpisodeParser.TryParseFile(yearFile, root, out parsed), "year file should parse");
+            AssertEqual("Series", parsed.Title, "year should stay out of title");
+            AssertEqual("E004", parsed.Episode, "episode should be 04, not the year");
+            AssertTrue(!EpisodeParser.TryParseFile(remasterFile, root, out parsed), "remaster year should not parse as episode");
+            AssertTrue(!EpisodeParser.TryParseFile(rangeFile, root, out parsed), "ambiguous ranges should be left for manual review");
+        }
+
+        private static void FilenameParsingHandlesAnimePartTitles()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "sedf-tests");
+            var file = CreateScannedFile(root, "Library", "[Erai-raws] Dr Stone - Science Future Part 3 - 06 [720p CR WEB-DL AVC AAC][MultiSub][F7D71D86].mkv", 100);
+
+            EpisodeFile parsed;
+            AssertTrue(EpisodeParser.TryParseFile(file, root, out parsed), "part title should parse");
+            AssertEqual("Erai-raws", parsed.SubtitleGroup, "subtitle group");
+            AssertEqual("Dr Stone Science Future Part 3", parsed.Title, "part title");
+            AssertEqual("E006", parsed.Episode, "episode");
         }
 
         private static void GroupingCountsRepeatedEpisodeKeys()
@@ -179,6 +210,16 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(!MainForm.SeriesTitleMatchesSearch(row, "higher resolution"), "recommendation reason should not match");
         }
 
+        private static void CoverSearchTitlesHandleAnimePartSuffixes()
+        {
+            var titles = MainForm.BuildCoverSearchTitles("Dr Stone - Science Future Part 3");
+
+            AssertEqual("Dr. Stone: Science Future Part 3", titles[0], "specific provider-friendly title");
+            AssertTrue(titles.Contains("Dr. Stone: Science Future"), "part suffix should be optional for cover lookup");
+            AssertTrue(titles.Contains("Dr. Stone"), "base series should be a fallback");
+            AssertTrue(titles.IndexOf("Dr. Stone: Science Future") < titles.IndexOf("Dr. Stone"), "specific title should be tried before base series");
+        }
+
         private static void MissingEpisodeFinderReportsLocalGaps()
         {
             var rows = new List<EpisodeFile>
@@ -264,6 +305,12 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertEqual(4, merged.ScannedRows.Count, "merged scanned count");
             AssertEqual(2, merged.DuplicateRows.Count, "merged duplicate candidate count");
             AssertEqual(1, merged.DuplicateGroups, "merged duplicate group count");
+        }
+
+        private static void NetworkPathsAreDetectedBeforeDeletion()
+        {
+            AssertTrue(MainForm.IsNetworkPath(@"\\server\share\Show\Show - 01.mkv"), "UNC path should be treated as network");
+            AssertTrue(!MainForm.IsNetworkPath(@"C:\Media\Show\Show - 01.mkv"), "local path should not be treated as network");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)
