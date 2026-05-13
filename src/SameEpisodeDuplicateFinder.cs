@@ -1398,6 +1398,7 @@ namespace SameEpisodeDuplicateFinder
 
         private readonly Label rootBox;
         private readonly TextBox searchBox;
+        private readonly Button topScanButton;
         private readonly Button deleteButton;
         private readonly ToolTip toolTip;
         private readonly MenuStrip mainMenu;
@@ -1474,7 +1475,29 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label missingEpisodesTotalLabel;
         private readonly Label episodeSearchTotalLabel;
         private readonly Label selectedFeedTotalLabel;
+        private readonly PictureBox shellSeriesCoverBox;
+        private readonly Label shellSeriesTitleLabel;
+        private readonly Label shellSeriesMetaLabel;
+        private readonly Label shellScannedStatLabel;
+        private readonly Label shellDuplicateStatLabel;
+        private readonly Label shellMissingStatLabel;
+        private readonly Label shellAniDbBadgeLabel;
+        private readonly Label shellTvDbBadgeLabel;
+        private readonly Label shellTmDbBadgeLabel;
+        private readonly Label shellInspectorTitleLabel;
+        private readonly Button inspectorKeepButton;
+        private readonly Button inspectorDeleteButton;
+        private readonly Button inspectorIgnoreButton;
+        private readonly Button inspectorOpenFolderButton;
+        private readonly Button navLibraryButton;
+        private readonly Button navDuplicatesButton;
+        private readonly Button navMissingEpisodesButton;
+        private readonly Button navEpisodeSearchButton;
+        private readonly Button navSelectedRssButton;
+        private readonly Button navActivityButton;
+        private readonly Button navSettingsButton;
         private readonly TableLayoutPanel workspacePanel;
+        private readonly TableLayoutPanel workflowPanel;
         private readonly GroupBox seriesGroup;
         private readonly GroupBox activityGroup;
         private readonly GroupBox detailsGroup;
@@ -1515,6 +1538,7 @@ namespace SameEpisodeDuplicateFinder
         private bool missingEpisodesPanelCollapsed;
         private bool episodeSearchPanelCollapsed;
         private bool selectedFeedPanelCollapsed;
+        private string activeShellSection;
         private bool restoringColumnLayout;
         private DateTime nextMonitorCheckUtc;
         private TcpListener selectedFeedServer;
@@ -1557,6 +1581,7 @@ namespace SameEpisodeDuplicateFinder
             var uiSettings = UiLayoutSettingsStore.Load();
             activeReviewFilter = "All";
             activeSearchText = "";
+            activeShellSection = "Duplicates";
             darkMode = uiSettings.DarkMode;
             showSeriesCovers = uiSettings.ShowSeriesCovers;
             candidatesPanelCollapsed = uiSettings.CandidatesPanelCollapsed;
@@ -1799,12 +1824,22 @@ namespace SameEpisodeDuplicateFinder
 
             var dashboardInputs = new TableLayoutPanel();
             dashboardInputs.Dock = DockStyle.Fill;
-            dashboardInputs.ColumnCount = 2;
+            dashboardInputs.ColumnCount = 3;
             dashboardInputs.RowCount = 1;
             dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48));
             dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
             dashboardInputs.Controls.Add(rootLabel, 0, 0);
             dashboardInputs.Controls.Add(rootBox, 1, 0);
+
+            topScanButton = new Button();
+            topScanButton.Text = "Scan";
+            topScanButton.Dock = DockStyle.Fill;
+            topScanButton.Margin = new Padding(8, 3, 0, 3);
+            topScanButton.Click += BrowseButton_Click;
+            StyleButton(topScanButton, true);
+            toolTip.SetToolTip(topScanButton, "Choose one or more folders and scan them as one combined session.");
+            dashboardInputs.Controls.Add(topScanButton, 2, 0);
 
             topPanel.Controls.Add(dashboardInputs, 0, 0);
             topPanel.Controls.Add(statusLabel, 0, 1);
@@ -2165,6 +2200,36 @@ namespace SameEpisodeDuplicateFinder
             StyleGroupBox(detailsGroup);
             detailsGroup.Controls.Add(detailsBox);
 
+            shellInspectorTitleLabel = new Label();
+            shellInspectorTitleLabel.Text = "File Details";
+            shellInspectorTitleLabel.Dock = DockStyle.Fill;
+            shellInspectorTitleLabel.Font = new Font(Font.FontFamily, 10F, FontStyle.Bold);
+            shellInspectorTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+            inspectorKeepButton = new Button();
+            inspectorKeepButton.Text = "Keep This File";
+            inspectorKeepButton.Dock = DockStyle.Fill;
+            inspectorKeepButton.Click += InspectorKeepButton_Click;
+            StyleButton(inspectorKeepButton, true);
+
+            inspectorDeleteButton = new Button();
+            inspectorDeleteButton.Text = "Mark for Removal";
+            inspectorDeleteButton.Dock = DockStyle.Fill;
+            inspectorDeleteButton.Click += InspectorDeleteButton_Click;
+            StyleDeleteButton(inspectorDeleteButton);
+
+            inspectorIgnoreButton = new Button();
+            inspectorIgnoreButton.Text = "Ignore Episode Group";
+            inspectorIgnoreButton.Dock = DockStyle.Fill;
+            inspectorIgnoreButton.Click += InspectorIgnoreButton_Click;
+            StyleButton(inspectorIgnoreButton, false);
+
+            inspectorOpenFolderButton = new Button();
+            inspectorOpenFolderButton.Text = "Open File Location";
+            inspectorOpenFolderButton.Dock = DockStyle.Fill;
+            inspectorOpenFolderButton.Click += InspectorOpenFolderButton_Click;
+            StyleButton(inspectorOpenFolderButton, false);
+
             seriesGroup = new GroupBox();
             seriesGroup.Text = "Series";
             seriesGroup.Dock = DockStyle.Fill;
@@ -2345,29 +2410,162 @@ namespace SameEpisodeDuplicateFinder
             StyleGroupBox(activityGroup);
             activityGroup.Controls.Add(activityLogBox);
 
+            shellSeriesCoverBox = new PictureBox();
+            shellSeriesCoverBox.Dock = DockStyle.Fill;
+            shellSeriesCoverBox.SizeMode = PictureBoxSizeMode.Zoom;
+            shellSeriesCoverBox.Margin = new Padding(0, 0, 16, 0);
+
+            shellSeriesTitleLabel = new Label();
+            shellSeriesTitleLabel.Text = "No series selected";
+            shellSeriesTitleLabel.Dock = DockStyle.Fill;
+            shellSeriesTitleLabel.Font = new Font(Font.FontFamily, 18F, FontStyle.Bold);
+            shellSeriesTitleLabel.TextAlign = ContentAlignment.BottomLeft;
+            shellSeriesTitleLabel.AutoEllipsis = true;
+
+            shellSeriesMetaLabel = new Label();
+            shellSeriesMetaLabel.Text = "Scan a folder to populate the Phase 2 shell.";
+            shellSeriesMetaLabel.Dock = DockStyle.Fill;
+            shellSeriesMetaLabel.TextAlign = ContentAlignment.TopLeft;
+            shellSeriesMetaLabel.AutoEllipsis = true;
+            shellSeriesMetaLabel.ForeColor = SecondaryTextColor;
+
+            shellScannedStatLabel = CreateShellStatLabel("Scanned Files\r\n0");
+            shellDuplicateStatLabel = CreateShellStatLabel("Duplicate Candidates\r\n0");
+            shellMissingStatLabel = CreateShellStatLabel("Missing Episodes\r\n0");
+            shellAniDbBadgeLabel = CreateProviderBadgeLabel("AniDB", "Ready");
+            shellTvDbBadgeLabel = CreateProviderBadgeLabel("TheTVDB", "Not Configured");
+            shellTmDbBadgeLabel = CreateProviderBadgeLabel("TMDB", "Not Configured");
+
+            navLibraryButton = CreateNavButton("Library", "Show the existing series selector. Full Library view lands in Phase 2.5.", ShellNavButton_Click);
+            navDuplicatesButton = CreateNavButton("Duplicates", "Show duplicate candidates in the Phase 2 shell.", ShellNavButton_Click);
+            navMissingEpisodesButton = CreateNavButton("Missing Episodes", "Show the existing Missing Episodes workflow.", ShellNavButton_Click);
+            navEpisodeSearchButton = CreateNavButton("Episode Search", "Show the existing Episode Search workflow.", ShellNavButton_Click);
+            navSelectedRssButton = CreateNavButton("Selected RSS", "Show the selected RSS feed workflow.", ShellNavButton_Click);
+            navActivityButton = CreateNavButton("Activity", "Show history and alert messages.", ShellNavButton_Click);
+            navSettingsButton = CreateNavButton("Settings", "Settings remain available from the menu in this Phase 2 slice.", ShellNavButton_Click);
+            navLibraryButton.Tag = "Library";
+            navDuplicatesButton.Tag = "Duplicates";
+            navMissingEpisodesButton.Tag = "MissingEpisodes";
+            navEpisodeSearchButton.Tag = "EpisodeSearch";
+            navSelectedRssButton.Tag = "SelectedRss";
+            navActivityButton.Tag = "Activity";
+            navSettingsButton.Tag = "Settings";
+
+            var navigationPanel = new TableLayoutPanel();
+            navigationPanel.Dock = DockStyle.Fill;
+            navigationPanel.ColumnCount = 1;
+            navigationPanel.RowCount = 10;
+            navigationPanel.Padding = new Padding(10, 8, 10, 8);
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 12));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
+            navigationPanel.Controls.Add(navLibraryButton, 0, 0);
+            navigationPanel.Controls.Add(navDuplicatesButton, 0, 1);
+            navigationPanel.Controls.Add(navMissingEpisodesButton, 0, 2);
+            navigationPanel.Controls.Add(navEpisodeSearchButton, 0, 3);
+            navigationPanel.Controls.Add(navSelectedRssButton, 0, 4);
+            navigationPanel.Controls.Add(navActivityButton, 0, 5);
+            navigationPanel.Controls.Add(navSettingsButton, 0, 6);
+            navigationPanel.Controls.Add(seriesGroup, 0, 8);
+
+            var sidebarStatsLabel = new Label();
+            sidebarStatsLabel.Dock = DockStyle.Fill;
+            sidebarStatsLabel.TextAlign = ContentAlignment.BottomLeft;
+            sidebarStatsLabel.ForeColor = SecondaryTextColor;
+            sidebarStatsLabel.Text = "Series selector stays here for Phase 2.";
+            navigationPanel.Controls.Add(sidebarStatsLabel, 0, 9);
+
+            var seriesHeader = new TableLayoutPanel();
+            seriesHeader.Dock = DockStyle.Fill;
+            seriesHeader.Padding = new Padding(12);
+            seriesHeader.ColumnCount = 5;
+            seriesHeader.RowCount = 3;
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 48F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 22F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 30F));
+            seriesHeader.Controls.Add(shellSeriesCoverBox, 0, 0);
+            seriesHeader.SetRowSpan(shellSeriesCoverBox, 3);
+            seriesHeader.Controls.Add(shellSeriesTitleLabel, 1, 0);
+            seriesHeader.SetColumnSpan(shellSeriesTitleLabel, 4);
+            seriesHeader.Controls.Add(shellSeriesMetaLabel, 1, 1);
+            seriesHeader.SetColumnSpan(shellSeriesMetaLabel, 4);
+            seriesHeader.Controls.Add(shellScannedStatLabel, 1, 2);
+            seriesHeader.Controls.Add(shellDuplicateStatLabel, 2, 2);
+            seriesHeader.Controls.Add(shellMissingStatLabel, 3, 2);
+
+            var providerPanel = new TableLayoutPanel();
+            providerPanel.Dock = DockStyle.Fill;
+            providerPanel.ColumnCount = 1;
+            providerPanel.RowCount = 3;
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
+            providerPanel.Controls.Add(shellAniDbBadgeLabel, 0, 0);
+            providerPanel.Controls.Add(shellTvDbBadgeLabel, 0, 1);
+            providerPanel.Controls.Add(shellTmDbBadgeLabel, 0, 2);
+            seriesHeader.Controls.Add(providerPanel, 4, 2);
+
+            workflowPanel = new TableLayoutPanel();
+            workflowPanel.Dock = DockStyle.Fill;
+            workflowPanel.ColumnCount = 1;
+            workflowPanel.RowCount = 2;
+            workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 68F));
+            workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32F));
+            workflowPanel.Controls.Add(candidatesGroup, 0, 0);
+            workflowPanel.Controls.Add(deletionGroup, 0, 1);
+
+            var mainContentPanel = new TableLayoutPanel();
+            mainContentPanel.Dock = DockStyle.Fill;
+            mainContentPanel.ColumnCount = 1;
+            mainContentPanel.RowCount = 2;
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 148));
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            mainContentPanel.Controls.Add(seriesHeader, 0, 0);
+            mainContentPanel.Controls.Add(workflowPanel, 0, 1);
+
+            var inspectorPanel = new TableLayoutPanel();
+            inspectorPanel.Dock = DockStyle.Fill;
+            inspectorPanel.Padding = new Padding(10, 8, 10, 8);
+            inspectorPanel.ColumnCount = 1;
+            inspectorPanel.RowCount = 6;
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.Controls.Add(shellInspectorTitleLabel, 0, 0);
+            inspectorPanel.Controls.Add(detailsGroup, 0, 1);
+            inspectorPanel.Controls.Add(inspectorKeepButton, 0, 2);
+            inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 3);
+            inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 4);
+            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 5);
+
             workspacePanel = new TableLayoutPanel();
             workspacePanel.Dock = DockStyle.Fill;
-            workspacePanel.Padding = new Padding(10);
+            workspacePanel.Padding = new Padding(0);
             workspacePanel.BackColor = AppBackColor;
-            workspacePanel.ColumnCount = 6;
-            workspacePanel.RowCount = 2;
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16.6F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 17F));
+            workspacePanel.ColumnCount = 3;
+            workspacePanel.RowCount = 1;
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            workspacePanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
-            workspacePanel.Controls.Add(seriesGroup, 0, 0);
-            workspacePanel.Controls.Add(candidatesGroup, 1, 0);
-            workspacePanel.Controls.Add(deletionGroup, 2, 0);
-            workspacePanel.Controls.Add(missingEpisodesGroup, 3, 0);
-            workspacePanel.Controls.Add(episodeSearchGroup, 4, 0);
-            workspacePanel.Controls.Add(selectedFeedGroup, 5, 0);
-            workspacePanel.Controls.Add(activityGroup, 0, 1);
-            workspacePanel.Controls.Add(detailsGroup, 1, 1);
-            workspacePanel.SetColumnSpan(detailsGroup, 5);
+            workspacePanel.Controls.Add(navigationPanel, 0, 0);
+            workspacePanel.Controls.Add(mainContentPanel, 1, 0);
+            workspacePanel.Controls.Add(inspectorPanel, 2, 0);
             ApplyWorkspacePanelVisibility();
 
             Controls.Add(workspacePanel);
@@ -2392,6 +2590,46 @@ namespace SameEpisodeDuplicateFinder
             label.BorderStyle = BorderStyle.None;
             label.TextAlign = ContentAlignment.MiddleCenter;
             return label;
+        }
+
+        private Label CreateShellStatLabel(string text)
+        {
+            var label = new Label();
+            label.Text = text;
+            label.Dock = DockStyle.Fill;
+            label.AutoEllipsis = true;
+            label.TextAlign = ContentAlignment.MiddleLeft;
+            label.Padding = new Padding(10, 0, 4, 0);
+            label.Margin = new Padding(0, 0, 8, 0);
+            label.BorderStyle = BorderStyle.FixedSingle;
+            return label;
+        }
+
+        private Label CreateProviderBadgeLabel(string provider, string status)
+        {
+            var label = new Label();
+            label.Text = provider + ": " + status;
+            label.Dock = DockStyle.Fill;
+            label.AutoEllipsis = true;
+            label.TextAlign = ContentAlignment.MiddleLeft;
+            label.Padding = new Padding(8, 0, 8, 0);
+            label.Margin = new Padding(0, 1, 0, 1);
+            label.BorderStyle = BorderStyle.FixedSingle;
+            return label;
+        }
+
+        private Button CreateNavButton(string text, string tooltip, EventHandler clickHandler)
+        {
+            var button = new Button();
+            button.Text = text;
+            button.Dock = DockStyle.Fill;
+            button.TextAlign = ContentAlignment.MiddleLeft;
+            button.Padding = new Padding(10, 0, 6, 0);
+            button.Margin = new Padding(0, 2, 0, 2);
+            button.Click += clickHandler;
+            StyleButton(button, false);
+            toolTip.SetToolTip(button, tooltip);
+            return button;
         }
 
         private static Icon CreateAppIcon()
@@ -2761,47 +2999,78 @@ namespace SameEpisodeDuplicateFinder
             var missingEpisodesVisible = !missingEpisodesPanelCollapsed;
             var episodeSearchVisible = !episodeSearchPanelCollapsed;
             var selectedFeedVisible = !selectedFeedPanelCollapsed;
-            candidatesGroup.Visible = candidatesVisible;
-            deletionGroup.Visible = deletionVisible;
-            missingEpisodesGroup.Visible = missingEpisodesVisible;
-            episodeSearchGroup.Visible = episodeSearchVisible;
-            selectedFeedGroup.Visible = selectedFeedVisible;
+            if (workflowPanel != null)
+            {
+                workflowPanel.SuspendLayout();
+                workflowPanel.Controls.Clear();
+                workflowPanel.RowStyles.Clear();
+                workflowPanel.RowCount = 1;
+                workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
-            var visiblePanelCount = 1;
-            if (candidatesVisible)
-            {
-                visiblePanelCount++;
-            }
-            if (deletionVisible)
-            {
-                visiblePanelCount++;
-            }
-            if (missingEpisodesVisible)
-            {
-                visiblePanelCount++;
-            }
-            if (episodeSearchVisible)
-            {
-                visiblePanelCount++;
-            }
-            if (selectedFeedVisible)
-            {
-                visiblePanelCount++;
+                var section = activeShellSection ?? "Duplicates";
+                if (string.Equals(section, "MissingEpisodes", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(missingEpisodesGroup, 0, 0);
+                    missingEpisodesGroup.Visible = missingEpisodesVisible;
+                }
+                else if (string.Equals(section, "EpisodeSearch", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(episodeSearchGroup, 0, 0);
+                    episodeSearchGroup.Visible = episodeSearchVisible;
+                }
+                else if (string.Equals(section, "SelectedRss", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(selectedFeedGroup, 0, 0);
+                    selectedFeedGroup.Visible = selectedFeedVisible;
+                }
+                else if (string.Equals(section, "Activity", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(activityGroup, 0, 0);
+                    activityGroup.Visible = true;
+                }
+                else if (string.Equals(section, "Library", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(activityGroup, 0, 0);
+                    activityGroup.Text = "Library";
+                    activityGroup.Visible = true;
+                    UpdateActivity("Library navigation selected. Series selection stays in the left rail for this Phase 2 slice.", true);
+                }
+                else if (string.Equals(section, "Settings", StringComparison.OrdinalIgnoreCase))
+                {
+                    workflowPanel.Controls.Add(activityGroup, 0, 0);
+                    activityGroup.Text = "Settings";
+                    activityGroup.Visible = true;
+                    UpdateActivity("Settings navigation selected. Provider and tool settings remain available from the menu for this Phase 2 slice.", true);
+                }
+                else
+                {
+                    workflowPanel.RowCount = 2;
+                    workflowPanel.RowStyles.Clear();
+                    workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, deletionVisible ? 68F : 100F));
+                    workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, deletionVisible ? 32F : 0F));
+                    if (candidatesVisible)
+                    {
+                        workflowPanel.Controls.Add(candidatesGroup, 0, 0);
+                    }
+                    if (deletionVisible)
+                    {
+                        workflowPanel.Controls.Add(deletionGroup, 0, 1);
+                    }
+                    candidatesGroup.Visible = candidatesVisible;
+                    deletionGroup.Visible = deletionVisible;
+                }
+
+                workflowPanel.ResumeLayout();
             }
 
-            var visibleWidth = 100F / visiblePanelCount;
-            workspacePanel.ColumnStyles[0].Width = visibleWidth;
-            workspacePanel.ColumnStyles[1].Width = candidatesVisible ? visibleWidth : 0F;
-            workspacePanel.ColumnStyles[2].Width = deletionVisible ? visibleWidth : 0F;
-            workspacePanel.ColumnStyles[3].Width = missingEpisodesVisible ? visibleWidth : 0F;
-            workspacePanel.ColumnStyles[4].Width = episodeSearchVisible ? visibleWidth : 0F;
-            workspacePanel.ColumnStyles[5].Width = selectedFeedVisible ? visibleWidth : 0F;
             UpdateCandidatesToggleText();
             UpdateReadyToggleText();
             UpdateMissingEpisodesToggleText();
             UpdateEpisodeSearchToggleText();
             UpdateSelectedFeedToggleText();
             UpdateWorkspaceMenuState();
+            UpdateShellNavigationState();
+            UpdateShellSeriesHeader();
         }
 
         private void UpdateWorkspaceMenuState()
@@ -2820,6 +3089,7 @@ namespace SameEpisodeDuplicateFinder
 
         private void RestoreWorkspaceMenuItem_Click(object sender, EventArgs e)
         {
+            activeShellSection = "Duplicates";
             candidatesPanelCollapsed = false;
             deletionPanelCollapsed = false;
             missingEpisodesPanelCollapsed = false;
@@ -2896,6 +3166,8 @@ namespace SameEpisodeDuplicateFinder
             missingEpisodesGrid.Refresh();
             episodeSearchGrid.Refresh();
             selectedFeedGrid.Refresh();
+            UpdateShellNavigationState();
+            UpdateShellSeriesHeader();
         }
 
         private void ApplyMenuTheme(ToolStripItemCollection items)
@@ -3757,6 +4029,99 @@ namespace SameEpisodeDuplicateFinder
             filterChipLabel.Text = summary;
             cacheChipLabel.Text = summary;
             providerChipLabel.Text = summary;
+            UpdateShellSeriesHeader();
+        }
+
+        private void UpdateShellSeriesHeader()
+        {
+            if (shellSeriesTitleLabel == null)
+            {
+                return;
+            }
+
+            var selectedFile = GetCurrentCandidateFile();
+            var selectedTitle = GetSelectedShellSeriesTitle(selectedFile);
+            var seriesRows = GetShellSeriesRows(selectedTitle, selectedFile);
+            var displayTitle = string.IsNullOrWhiteSpace(selectedTitle) ? "All Series" : selectedTitle;
+            var duplicateRows = string.IsNullOrWhiteSpace(selectedTitle)
+                ? allRows.ToList()
+                : allRows.Where(x => string.Equals(x.Title, selectedTitle, StringComparison.OrdinalIgnoreCase)).ToList();
+            var missingRows = string.IsNullOrWhiteSpace(selectedTitle)
+                ? missingEpisodeRows.ToList()
+                : missingEpisodeRows.Where(x => string.Equals(x.Title, selectedTitle, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            shellSeriesTitleLabel.Text = displayTitle;
+            shellSeriesMetaLabel.Text = string.Format(
+                "{0:N0} scanned file(s) | {1:N0} duplicate group(s) | {2}",
+                seriesRows.Count,
+                EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows),
+                GetProviderStatusSummary());
+            shellScannedStatLabel.Text = string.Format("Scanned Files\r\n{0:N0}", seriesRows.Count);
+            shellDuplicateStatLabel.Text = string.Format("Duplicate Candidates\r\n{0:N0} episode(s) / {1:N0} file(s)", EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows), duplicateRows.Count);
+            shellMissingStatLabel.Text = string.Format("Missing Episodes\r\n{0:N0}", missingRows.Sum(x => x.MissingCount));
+            UpdateProviderBadge(shellAniDbBadgeLabel, "AniDB", "HTTP Ready", true);
+            UpdateProviderBadge(shellTvDbBadgeLabel, "TheTVDB", TvDbSettingsStore.Load().HasApiKey ? "Connected" : "Not Configured", TvDbSettingsStore.Load().HasApiKey);
+            UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", TmDbSettingsStore.Load().HasReadAccessToken ? "Connected" : "Not Configured", TmDbSettingsStore.Load().HasReadAccessToken);
+
+            var coverRows = seriesRows.Count > 0 ? seriesRows : duplicateRows;
+            var coverPath = FindSeriesCoverPath(coverRows);
+            var oldImage = shellSeriesCoverBox.Image;
+            shellSeriesCoverBox.Image = CreateSeriesCoverImage(displayTitle, coverPath);
+            if (oldImage != null)
+            {
+                oldImage.Dispose();
+            }
+        }
+
+        private string GetSelectedShellSeriesTitle(EpisodeFile selectedFile)
+        {
+            var seriesTitle = activeSeriesTag as string;
+            if (!string.IsNullOrWhiteSpace(seriesTitle) && seriesTitle != AllSeriesTag)
+            {
+                return seriesTitle;
+            }
+
+            if (selectedFile != null && !string.IsNullOrWhiteSpace(selectedFile.Title))
+            {
+                return selectedFile.Title;
+            }
+
+            return "";
+        }
+
+        private List<EpisodeFile> GetShellSeriesRows(string selectedTitle, EpisodeFile selectedFile)
+        {
+            if (!string.IsNullOrWhiteSpace(selectedTitle))
+            {
+                var seriesRows = GetSeriesSourceRows().Where(x => string.Equals(x.Title, selectedTitle, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (seriesRows.Count > 0)
+                {
+                    return seriesRows;
+                }
+            }
+
+            if (selectedFile != null)
+            {
+                return new List<EpisodeFile> { selectedFile };
+            }
+
+            return GetSeriesSourceRows().ToList();
+        }
+
+        private void UpdateProviderBadge(Label label, string provider, string status, bool ok)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            label.Text = provider + ": " + status;
+            label.BackColor = ok
+                ? (darkMode ? Color.FromArgb(27, 67, 50) : Color.FromArgb(220, 252, 231))
+                : (darkMode ? Color.FromArgb(77, 51, 31) : Color.FromArgb(255, 237, 213));
+            label.ForeColor = ok
+                ? (darkMode ? Color.FromArgb(187, 247, 208) : Color.FromArgb(22, 101, 52))
+                : (darkMode ? Color.FromArgb(253, 230, 138) : Color.FromArgb(146, 64, 14));
         }
 
         private string GetFileFormatFilterSummary()
@@ -4568,19 +4933,81 @@ namespace SameEpisodeDuplicateFinder
 
         private void ShowSelectedFeedPanel()
         {
+            activeShellSection = "SelectedRss";
             selectedFeedPanelCollapsed = false;
             ApplyWorkspacePanelVisibility();
+        }
+
+        private void ShellNavButton_Click(object sender, EventArgs e)
+        {
+            var button = sender as Button;
+            var section = button == null ? "" : Convert.ToString(button.Tag);
+            if (string.IsNullOrWhiteSpace(section))
+            {
+                section = "Duplicates";
+            }
+
+            activeShellSection = section;
+            if (string.Equals(section, "Duplicates", StringComparison.OrdinalIgnoreCase))
+            {
+                candidatesPanelCollapsed = false;
+            }
+            else if (string.Equals(section, "MissingEpisodes", StringComparison.OrdinalIgnoreCase))
+            {
+                missingEpisodesPanelCollapsed = false;
+            }
+            else if (string.Equals(section, "EpisodeSearch", StringComparison.OrdinalIgnoreCase))
+            {
+                episodeSearchPanelCollapsed = false;
+            }
+            else if (string.Equals(section, "SelectedRss", StringComparison.OrdinalIgnoreCase))
+            {
+                selectedFeedPanelCollapsed = false;
+            }
+
+            ApplyWorkspacePanelVisibility();
+        }
+
+        private void UpdateShellNavigationState()
+        {
+            StyleNavButton(navLibraryButton, string.Equals(activeShellSection, "Library", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navDuplicatesButton, string.Equals(activeShellSection, "Duplicates", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navMissingEpisodesButton, string.Equals(activeShellSection, "MissingEpisodes", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navEpisodeSearchButton, string.Equals(activeShellSection, "EpisodeSearch", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navSelectedRssButton, string.Equals(activeShellSection, "SelectedRss", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navActivityButton, string.Equals(activeShellSection, "Activity", StringComparison.OrdinalIgnoreCase));
+            StyleNavButton(navSettingsButton, string.Equals(activeShellSection, "Settings", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void StyleNavButton(Button button, bool selected)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = selected ? 1 : 0;
+            button.FlatAppearance.BorderColor = AccentColor;
+            button.BackColor = selected
+                ? (darkMode ? Color.FromArgb(37, 99, 145) : Color.FromArgb(219, 234, 254))
+                : PanelBackColor;
+            button.ForeColor = selected
+                ? (darkMode ? Color.White : Color.FromArgb(30, 64, 175))
+                : PrimaryTextColor;
         }
 
         private void ApplySeriesFilter(object tag)
         {
             activeSeriesTag = tag;
+            activeShellSection = "Duplicates";
 
             var episodeFile = tag as EpisodeFile;
             if (episodeFile != null)
             {
                 ShowRows(new List<EpisodeFile> { episodeFile });
                 UpdateDetails(episodeFile);
+                ApplyWorkspacePanelVisibility();
                 return;
             }
 
@@ -4589,6 +5016,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 ShowRows(allRows);
                 UpdateDetails((EpisodeFile)null);
+                ApplyWorkspacePanelVisibility();
                 return;
             }
 
@@ -4604,6 +5032,7 @@ namespace SameEpisodeDuplicateFinder
                     ShowRows(allRows.Where(x => string.Equals(x.Title, filter, StringComparison.OrdinalIgnoreCase)));
                 }
                 UpdateDetails((EpisodeFile)null);
+                ApplyWorkspacePanelVisibility();
             }
         }
 
@@ -4769,6 +5198,7 @@ namespace SameEpisodeDuplicateFinder
             activeGrid = targetGrid;
             var file = targetGrid.CurrentRow.DataBoundItem as EpisodeFile;
             UpdateDetails(file);
+            UpdateShellSeriesHeader();
         }
 
         private void Grid_CellMouseDown(object sender, DataGridViewCellMouseEventArgs e)
@@ -4833,6 +5263,58 @@ namespace SameEpisodeDuplicateFinder
             }
 
             OpenShellPath(folder);
+        }
+
+        private void InspectorKeepButton_Click(object sender, EventArgs e)
+        {
+            var file = GetCurrentCandidateFile();
+            if (file == null)
+            {
+                return;
+            }
+
+            file.Delete = false;
+            RefreshDeletionView();
+            UpdateDetails(file);
+            UpdateSummary("Marked selected file to keep.");
+        }
+
+        private void InspectorDeleteButton_Click(object sender, EventArgs e)
+        {
+            var file = GetCurrentCandidateFile();
+            if (file == null)
+            {
+                return;
+            }
+
+            file.Delete = true;
+            RefreshDeletionView();
+            UpdateDetails(file);
+            UpdateSummary("Marked selected file for removal.");
+        }
+
+        private void InspectorIgnoreButton_Click(object sender, EventArgs e)
+        {
+            var file = GetCurrentCandidateFile();
+            if (file == null || string.IsNullOrWhiteSpace(file.Key))
+            {
+                return;
+            }
+
+            foreach (var row in allRows.Where(x => string.Equals(x.Key, file.Key, StringComparison.OrdinalIgnoreCase)))
+            {
+                row.Delete = false;
+                row.ReviewStatus = "Ignored";
+            }
+
+            RefreshReviewGrids();
+            UpdateDetails(file);
+            UpdateSummary("Ignored selected episode group.");
+        }
+
+        private void InspectorOpenFolderButton_Click(object sender, EventArgs e)
+        {
+            OpenCandidateFolderItem_Click(sender, e);
         }
 
         private void FileBotMenuItem_Click(object sender, EventArgs e)
@@ -5878,12 +6360,14 @@ namespace SameEpisodeDuplicateFinder
 
         private void ToggleCandidatesButton_Click(object sender, EventArgs e)
         {
+            activeShellSection = "Duplicates";
             candidatesPanelCollapsed = !candidatesPanelCollapsed;
             ApplyWorkspacePanelVisibility();
         }
 
         private void ToggleReadyButton_Click(object sender, EventArgs e)
         {
+            activeShellSection = "Duplicates";
             deletionPanelCollapsed = !deletionPanelCollapsed;
             ApplyWorkspacePanelVisibility();
         }
@@ -5895,18 +6379,30 @@ namespace SameEpisodeDuplicateFinder
             {
                 episodeSearchPanelCollapsed = true;
             }
+            else
+            {
+                activeShellSection = "MissingEpisodes";
+            }
             ApplyWorkspacePanelVisibility();
         }
 
         private void ToggleEpisodeSearchButton_Click(object sender, EventArgs e)
         {
             episodeSearchPanelCollapsed = !episodeSearchPanelCollapsed;
+            if (!episodeSearchPanelCollapsed)
+            {
+                activeShellSection = "EpisodeSearch";
+            }
             ApplyWorkspacePanelVisibility();
         }
 
         private void ToggleSelectedFeedButton_Click(object sender, EventArgs e)
         {
             selectedFeedPanelCollapsed = !selectedFeedPanelCollapsed;
+            if (!selectedFeedPanelCollapsed)
+            {
+                activeShellSection = "SelectedRss";
+            }
             ApplyWorkspacePanelVisibility();
         }
 
@@ -8593,6 +9089,7 @@ namespace SameEpisodeDuplicateFinder
             rootBox.Enabled = !busy;
             searchBox.Enabled = !busy || rows.Count > 0;
             fileBrowseMenuItem.Enabled = !busy;
+            topScanButton.Enabled = !busy;
             viewColumnsMenuItem.Enabled = !busy;
             fileLoadSavedMenuItem.Enabled = !busy && File.Exists(GetCachePath());
             fileExportMenuItem.Enabled = !busy && hasCandidateData;
