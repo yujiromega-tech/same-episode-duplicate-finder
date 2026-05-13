@@ -173,10 +173,13 @@ namespace SameEpisodeDuplicateFinder
                 return result;
             }
 
-            var first = data.Cast<object>().OfType<IDictionary>().FirstOrDefault();
+            var normalizedQuery = NormalizeLookupTitle(title);
+            var first = data.Cast<object>()
+                            .OfType<IDictionary>()
+                            .FirstOrDefault(x => IsTitleMatch(normalizedQuery, FirstString(x, "name", "title", "slug")));
             if (first == null)
             {
-                result.Error = "TVDB returned no usable search result";
+                result.Error = "No confident TVDB title match";
                 return result;
             }
 
@@ -318,6 +321,35 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return "";
+        }
+
+        private static bool IsTitleMatch(string normalizedQuery, string candidateTitle)
+        {
+            return !string.IsNullOrWhiteSpace(normalizedQuery) &&
+                   string.Equals(normalizedQuery, NormalizeLookupTitle(candidateTitle), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeLookupTitle(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return "";
+            }
+
+            var builder = new StringBuilder();
+            foreach (var c in title.ToLowerInvariant())
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    builder.Append(c);
+                }
+                else if (builder.Length > 0 && builder[builder.Length - 1] != ' ')
+                {
+                    builder.Append(' ');
+                }
+            }
+
+            return builder.ToString().Trim();
         }
 
         private static string NormalizeImageUrl(string value)
