@@ -347,7 +347,7 @@ namespace SameEpisodeDuplicateFinder
         {
             return new UiLayoutSettings
             {
-                DarkMode = false,
+                DarkMode = true,
                 ShowSeriesCovers = true,
                 CandidatesPanelCollapsed = false,
                 DeletionPanelCollapsed = false,
@@ -1465,6 +1465,8 @@ namespace SameEpisodeDuplicateFinder
         private readonly Button selectedFeedRemoveButton;
         private readonly Button selectedFeedClearButton;
         private readonly LinkLabel detailsBox;
+        private readonly GroupBox metadataGroup;
+        private readonly Label metadataBox;
         private readonly ContextMenuStrip candidateContextMenu;
         private readonly ToolStripMenuItem openCandidateFileItem;
         private readonly ToolStripMenuItem openCandidateFolderItem;
@@ -1487,6 +1489,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label shellTmDbBadgeLabel;
         private readonly Label shellInspectorTitleLabel;
         private readonly Label inspectorPreviewLabel;
+        private readonly Label inspectorActionsLabel;
         private readonly PictureBox inspectorPreviewBox;
         private readonly Button inspectorKeepButton;
         private readonly Button inspectorDeleteButton;
@@ -1765,8 +1768,8 @@ namespace SameEpisodeDuplicateFinder
 
             var topPanel = new TableLayoutPanel();
             topPanel.Dock = DockStyle.Top;
-            topPanel.Height = 86;
-            topPanel.Padding = new Padding(10, 8, 10, 6);
+            topPanel.Height = 96;
+            topPanel.Padding = new Padding(14, 10, 14, 8);
             topPanel.BackColor = PanelBackColor;
             topPanel.ColumnCount = 1;
             topPanel.RowCount = 3;
@@ -1776,7 +1779,7 @@ namespace SameEpisodeDuplicateFinder
             topPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 6));
 
             var rootLabel = new Label();
-            rootLabel.Text = "Folder";
+            rootLabel.Text = "Location";
             rootLabel.TextAlign = ContentAlignment.MiddleLeft;
             rootLabel.Dock = DockStyle.Fill;
 
@@ -1786,7 +1789,7 @@ namespace SameEpisodeDuplicateFinder
             rootBox.AutoEllipsis = true;
             rootBox.TextAlign = ContentAlignment.MiddleLeft;
             rootBox.BorderStyle = BorderStyle.None;
-            rootBox.Padding = new Padding(6, 0, 6, 0);
+            rootBox.Padding = new Padding(10, 0, 10, 0);
             rootBox.Margin = new Padding(0, 4, 8, 4);
             rootBox.TextChanged += RootBox_TextChanged;
             toolTip.SetToolTip(rootBox, "Scanned folder list. Use File > Scan to choose one or more folders.");
@@ -1844,9 +1847,9 @@ namespace SameEpisodeDuplicateFinder
             dashboardInputs.Dock = DockStyle.Fill;
             dashboardInputs.ColumnCount = 3;
             dashboardInputs.RowCount = 1;
-            dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 48));
+            dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72));
             dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+            dashboardInputs.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
             dashboardInputs.Controls.Add(rootLabel, 0, 0);
             dashboardInputs.Controls.Add(rootBox, 1, 0);
 
@@ -2228,8 +2231,22 @@ namespace SameEpisodeDuplicateFinder
             StyleGroupBox(detailsGroup);
             detailsGroup.Controls.Add(detailsBox);
 
+            metadataBox = new Label();
+            metadataBox.Dock = DockStyle.Fill;
+            metadataBox.AutoEllipsis = true;
+            metadataBox.TextAlign = ContentAlignment.TopLeft;
+            metadataBox.Padding = new Padding(2);
+            metadataBox.Text = "Select a row to see provider match details.";
+
+            metadataGroup = new GroupBox();
+            metadataGroup.Text = "Metadata Match";
+            metadataGroup.Dock = DockStyle.Fill;
+            metadataGroup.Padding = new Padding(8);
+            StyleGroupBox(metadataGroup);
+            metadataGroup.Controls.Add(metadataBox);
+
             shellInspectorTitleLabel = new Label();
-            shellInspectorTitleLabel.Text = "File Details";
+            shellInspectorTitleLabel.Text = "Inspector";
             shellInspectorTitleLabel.Dock = DockStyle.Fill;
             shellInspectorTitleLabel.Font = new Font(Font.FontFamily, 10F, FontStyle.Bold);
             shellInspectorTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -2239,6 +2256,12 @@ namespace SameEpisodeDuplicateFinder
             inspectorPreviewLabel.Dock = DockStyle.Fill;
             inspectorPreviewLabel.Font = new Font(Font.FontFamily, 9F, FontStyle.Bold);
             inspectorPreviewLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+            inspectorActionsLabel = new Label();
+            inspectorActionsLabel.Text = "Actions";
+            inspectorActionsLabel.Dock = DockStyle.Fill;
+            inspectorActionsLabel.Font = new Font(Font.FontFamily, 9F, FontStyle.Bold);
+            inspectorActionsLabel.TextAlign = ContentAlignment.MiddleLeft;
 
             inspectorPreviewBox = new PictureBox();
             inspectorPreviewBox.Dock = DockStyle.Fill;
@@ -2563,17 +2586,17 @@ namespace SameEpisodeDuplicateFinder
 
             var seriesHeader = new TableLayoutPanel();
             seriesHeader.Dock = DockStyle.Fill;
-            seriesHeader.Padding = new Padding(12);
+            seriesHeader.Padding = new Padding(14, 12, 14, 12);
             seriesHeader.ColumnCount = 5;
             seriesHeader.RowCount = 3;
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 116));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35F));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 18F));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 29F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 48F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 42F));
             seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 22F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 30F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 36F));
             seriesHeader.Controls.Add(shellSeriesCoverBox, 0, 0);
             seriesHeader.SetRowSpan(shellSeriesCoverBox, 3);
             seriesHeader.Controls.Add(shellSeriesTitleLabel, 1, 0);
@@ -2594,7 +2617,8 @@ namespace SameEpisodeDuplicateFinder
             providerPanel.Controls.Add(shellAniDbBadgeLabel, 0, 0);
             providerPanel.Controls.Add(shellTvDbBadgeLabel, 0, 1);
             providerPanel.Controls.Add(shellTmDbBadgeLabel, 0, 2);
-            seriesHeader.Controls.Add(providerPanel, 4, 2);
+            seriesHeader.Controls.Add(providerPanel, 4, 1);
+            seriesHeader.SetRowSpan(providerPanel, 2);
 
             workflowPanel = new TableLayoutPanel();
             workflowPanel.Dock = DockStyle.Fill;
@@ -2609,7 +2633,7 @@ namespace SameEpisodeDuplicateFinder
             mainContentPanel.Dock = DockStyle.Fill;
             mainContentPanel.ColumnCount = 1;
             mainContentPanel.RowCount = 2;
-            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 148));
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 168));
             mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             mainContentPanel.Controls.Add(seriesHeader, 0, 0);
             mainContentPanel.Controls.Add(workflowPanel, 0, 1);
@@ -2618,23 +2642,27 @@ namespace SameEpisodeDuplicateFinder
             inspectorPanel.Dock = DockStyle.Fill;
             inspectorPanel.Padding = new Padding(10, 8, 10, 8);
             inspectorPanel.ColumnCount = 1;
-            inspectorPanel.RowCount = 8;
+            inspectorPanel.RowCount = 10;
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 120));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 128));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
             inspectorPanel.Controls.Add(shellInspectorTitleLabel, 0, 0);
             inspectorPanel.Controls.Add(detailsGroup, 0, 1);
-            inspectorPanel.Controls.Add(inspectorPreviewLabel, 0, 2);
-            inspectorPanel.Controls.Add(inspectorPreviewBox, 0, 3);
-            inspectorPanel.Controls.Add(inspectorKeepButton, 0, 4);
-            inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 5);
-            inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 6);
-            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 7);
+            inspectorPanel.Controls.Add(metadataGroup, 0, 2);
+            inspectorPanel.Controls.Add(inspectorPreviewLabel, 0, 3);
+            inspectorPanel.Controls.Add(inspectorPreviewBox, 0, 4);
+            inspectorPanel.Controls.Add(inspectorActionsLabel, 0, 5);
+            inspectorPanel.Controls.Add(inspectorKeepButton, 0, 6);
+            inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 7);
+            inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 8);
+            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 9);
 
             workspacePanel = new TableLayoutPanel();
             workspacePanel.Dock = DockStyle.Fill;
@@ -2642,9 +2670,9 @@ namespace SameEpisodeDuplicateFinder
             workspacePanel.BackColor = AppBackColor;
             workspacePanel.ColumnCount = 3;
             workspacePanel.RowCount = 1;
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 260));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270));
             workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
+            workspacePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
             workspacePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             workspacePanel.Controls.Add(navigationPanel, 0, 0);
             workspacePanel.Controls.Add(mainContentPanel, 1, 0);
@@ -2682,8 +2710,8 @@ namespace SameEpisodeDuplicateFinder
             label.Dock = DockStyle.Fill;
             label.AutoEllipsis = true;
             label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Padding = new Padding(10, 0, 4, 0);
-            label.Margin = new Padding(0, 0, 8, 0);
+            label.Padding = new Padding(12, 0, 8, 0);
+            label.Margin = new Padding(0, 0, 10, 0);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
         }
@@ -2695,8 +2723,8 @@ namespace SameEpisodeDuplicateFinder
             label.Dock = DockStyle.Fill;
             label.AutoEllipsis = true;
             label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Padding = new Padding(8, 0, 8, 0);
-            label.Margin = new Padding(0, 1, 0, 1);
+            label.Padding = new Padding(10, 0, 10, 0);
+            label.Margin = new Padding(0, 2, 0, 2);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
         }
@@ -2707,8 +2735,8 @@ namespace SameEpisodeDuplicateFinder
             button.Text = text;
             button.Dock = DockStyle.Fill;
             button.TextAlign = ContentAlignment.MiddleLeft;
-            button.Padding = new Padding(10, 0, 6, 0);
-            button.Margin = new Padding(0, 2, 0, 2);
+            button.Padding = new Padding(14, 0, 8, 0);
+            button.Margin = new Padding(0, 3, 0, 3);
             button.Click += clickHandler;
             StyleButton(button, false);
             toolTip.SetToolTip(button, tooltip);
@@ -2840,17 +2868,17 @@ namespace SameEpisodeDuplicateFinder
 
         private Color AppBackColor
         {
-            get { return darkMode ? Color.FromArgb(32, 32, 32) : Color.FromArgb(245, 247, 250); }
+            get { return darkMode ? Color.FromArgb(14, 20, 24) : Color.FromArgb(245, 247, 250); }
         }
 
         private Color PanelBackColor
         {
-            get { return darkMode ? Color.FromArgb(37, 37, 38) : Color.White; }
+            get { return darkMode ? Color.FromArgb(23, 31, 36) : Color.White; }
         }
 
         private Color HeaderBackColor
         {
-            get { return darkMode ? Color.FromArgb(45, 45, 48) : Color.FromArgb(241, 245, 249); }
+            get { return darkMode ? Color.FromArgb(30, 41, 48) : Color.FromArgb(241, 245, 249); }
         }
 
         private Color PrimaryTextColor
@@ -2860,27 +2888,27 @@ namespace SameEpisodeDuplicateFinder
 
         private Color SecondaryTextColor
         {
-            get { return darkMode ? Color.FromArgb(200, 200, 200) : Color.FromArgb(78, 88, 102); }
+            get { return darkMode ? Color.FromArgb(176, 190, 199) : Color.FromArgb(78, 88, 102); }
         }
 
         private Color BorderColor
         {
-            get { return darkMode ? Color.FromArgb(63, 63, 70) : Color.FromArgb(196, 205, 218); }
+            get { return darkMode ? Color.FromArgb(52, 68, 78) : Color.FromArgb(196, 205, 218); }
         }
 
         private Color GridLineColor
         {
-            get { return darkMode ? Color.FromArgb(51, 51, 55) : Color.FromArgb(226, 232, 240); }
+            get { return darkMode ? Color.FromArgb(42, 55, 64) : Color.FromArgb(226, 232, 240); }
         }
 
         private Color AlternateRowColor
         {
-            get { return darkMode ? Color.FromArgb(30, 30, 30) : Color.FromArgb(248, 250, 252); }
+            get { return darkMode ? Color.FromArgb(18, 26, 31) : Color.FromArgb(248, 250, 252); }
         }
 
         private Color SelectionBackColor
         {
-            get { return darkMode ? Color.FromArgb(38, 79, 120) : Color.FromArgb(219, 234, 254); }
+            get { return darkMode ? Color.FromArgb(26, 88, 150) : Color.FromArgb(219, 234, 254); }
         }
 
         private Color SelectionTextColor
@@ -2920,7 +2948,7 @@ namespace SameEpisodeDuplicateFinder
 
         private Color AccentColor
         {
-            get { return darkMode ? Color.FromArgb(79, 156, 249) : Color.FromArgb(0, 95, 184); }
+            get { return darkMode ? Color.FromArgb(59, 130, 246) : Color.FromArgb(0, 95, 184); }
         }
 
         private void StyleButton(Button button, bool emphasis)
@@ -2928,7 +2956,7 @@ namespace SameEpisodeDuplicateFinder
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 1;
             button.FlatAppearance.BorderColor = emphasis ? AccentColor : BorderColor;
-            button.BackColor = emphasis ? AccentColor : (darkMode ? Color.FromArgb(45, 45, 48) : Color.FromArgb(250, 251, 253));
+            button.BackColor = emphasis ? AccentColor : HeaderBackColor;
             button.ForeColor = emphasis ? Color.White : PrimaryTextColor;
             button.Margin = new Padding(3);
         }
@@ -2950,8 +2978,9 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            label.BackColor = PanelBackColor;
+            label.BackColor = HeaderBackColor;
             label.ForeColor = SecondaryTextColor;
+            label.BorderStyle = BorderStyle.FixedSingle;
         }
 
         private void StyleDashboard()
@@ -2976,7 +3005,7 @@ namespace SameEpisodeDuplicateFinder
             }
 
             busyNoticePanel.BorderStyle = BorderStyle.FixedSingle;
-            busyNoticePanel.BackColor = darkMode ? Color.FromArgb(30, 44, 58) : Color.FromArgb(232, 244, 255);
+            busyNoticePanel.BackColor = darkMode ? Color.FromArgb(24, 50, 72) : Color.FromArgb(232, 244, 255);
             busyNoticeTitleLabel.BackColor = busyNoticePanel.BackColor;
             busyNoticeTitleLabel.ForeColor = darkMode ? Color.FromArgb(255, 255, 255) : Color.FromArgb(20, 52, 83);
             busyNoticeStatusLabel.BackColor = busyNoticePanel.BackColor;
@@ -3002,7 +3031,8 @@ namespace SameEpisodeDuplicateFinder
             targetGrid.DefaultCellStyle.SelectionForeColor = SelectionTextColor;
             targetGrid.AlternatingRowsDefaultCellStyle.BackColor = AlternateRowColor;
             targetGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
-            targetGrid.RowTemplate.Height = 24;
+            targetGrid.ColumnHeadersHeight = 32;
+            targetGrid.RowTemplate.Height = 28;
             targetGrid.Refresh();
         }
 
@@ -3031,7 +3061,7 @@ namespace SameEpisodeDuplicateFinder
         private void StyleGroupBox(GroupBox groupBox)
         {
             groupBox.BackColor = PanelBackColor;
-            groupBox.ForeColor = AccentColor;
+            groupBox.ForeColor = darkMode ? Color.FromArgb(147, 197, 253) : AccentColor;
         }
 
         private Button CreatePanelCloseButton(string tooltip, EventHandler clickHandler)
@@ -5352,11 +5382,11 @@ namespace SameEpisodeDuplicateFinder
             }
 
             button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderSize = selected ? 1 : 0;
+            button.FlatAppearance.BorderSize = 1;
             button.FlatAppearance.BorderColor = AccentColor;
             button.BackColor = selected
-                ? (darkMode ? Color.FromArgb(37, 99, 145) : Color.FromArgb(219, 234, 254))
-                : PanelBackColor;
+                ? (darkMode ? Color.FromArgb(26, 70, 112) : Color.FromArgb(219, 234, 254))
+                : (darkMode ? Color.FromArgb(18, 26, 31) : PanelBackColor);
             button.ForeColor = selected
                 ? (darkMode ? Color.White : Color.FromArgb(30, 64, 175))
                 : PrimaryTextColor;
@@ -6592,6 +6622,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 detailsBox.Links.Clear();
                 detailsBox.Text = "Select a file to see details.";
+                metadataBox.Text = "Select a row to see provider match details.";
                 UpdateInspectorPreviewForTitle("");
                 return;
             }
@@ -6602,9 +6633,12 @@ namespace SameEpisodeDuplicateFinder
                 "Episode: " + DisplayOrDash(file.Episode) + " | Size: " + FormatByteSize(file.SizeBytes) + " | Group: " + DisplayOrDash(file.SubtitleGroup) + " | Version: " + DisplayOrDash(file.Version) + Environment.NewLine +
                 "Recommendation: " + DisplayOrDash(file.Recommendation) + " | " + DisplayOrDash(file.Confidence) + " | " + DisplayOrDash(file.ReviewStatus) + " | " + DisplayOrDash(file.ArtworkStatus) + Environment.NewLine +
                 "Reason: " + ShortenMiddle(DisplayOrDash(file.RecommendationReason), 170) + Environment.NewLine +
-                "Metadata: " + ShortenMiddle(DisplayOrDash(file.AniDbDisplay), 170) + Environment.NewLine +
                 "Location: " + ShortenMiddle(DisplayOrDash(file.FileLocation), 170) + Environment.NewLine +
                 "File: " + ShortenMiddle(DisplayOrDash(file.FileName), 170);
+            metadataBox.Text =
+                "Provider: " + ShortenMiddle(DisplayOrDash(file.AniDbDisplay), 120) + Environment.NewLine +
+                "Artwork: " + DisplayOrDash(file.ArtworkStatus) + Environment.NewLine +
+                "ID: " + DisplayOrDash(file.AniDbId);
             UpdateInspectorPreview(file);
         }
 
@@ -6621,6 +6655,10 @@ namespace SameEpisodeDuplicateFinder
                 "Scope: " + DisplayOrDash(row.Scope) + " | Missing: " + DisplayOrDash(row.MissingEpisodes) + " | Present: " + DisplayOrDash(row.PresentRange) + Environment.NewLine +
                 "Known local episodes: " + row.KnownEpisodes.ToString("N0") + " | Missing count: " + row.MissingCount.ToString("N0") + " | Locations: " + row.LocationCount.ToString("N0") + Environment.NewLine +
                 "Search query: " + DisplayOrDash(GetSearchQuery(row));
+            metadataBox.Text =
+                "Series: " + DisplayOrDash(row.Title) + Environment.NewLine +
+                "Search key: " + DisplayOrDash(row.SearchKey) + Environment.NewLine +
+                "Review: missing episode workflow";
             UpdateInspectorPreviewForTitle(row.Title);
         }
 
@@ -6648,6 +6686,10 @@ namespace SameEpisodeDuplicateFinder
                     detailsBox.Links.Add(start, "Open magnet".Length, row.MagnetLink);
                 }
             }
+            metadataBox.Text =
+                "Series: " + DisplayOrDash(row.SeriesTitle) + Environment.NewLine +
+                "Episode: " + DisplayOrDash(row.MissingEpisode) + Environment.NewLine +
+                "Provider: " + DisplayOrDash(row.Provider);
             UpdateInspectorPreviewForTitle(row.SeriesTitle);
         }
 
@@ -6677,6 +6719,10 @@ namespace SameEpisodeDuplicateFinder
                     detailsBox.Links.Add(start, linkText.Length, target);
                 }
             }
+            metadataBox.Text =
+                "Series: " + DisplayOrDash(row.SeriesTitle) + Environment.NewLine +
+                "Episode: " + DisplayOrDash(row.MissingEpisode) + Environment.NewLine +
+                "Provider: " + DisplayOrDash(row.Provider);
             UpdateInspectorPreviewForTitle(row.SeriesTitle);
         }
 
