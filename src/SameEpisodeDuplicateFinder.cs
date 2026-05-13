@@ -2473,7 +2473,7 @@ namespace SameEpisodeDuplicateFinder
             settingsSummaryLabel.Dock = DockStyle.Fill;
             settingsSummaryLabel.TextAlign = ContentAlignment.MiddleLeft;
             settingsSummaryLabel.AutoEllipsis = true;
-            settingsSummaryLabel.Text = "Phase 2.5 settings shortcuts. Existing menus still own the full dialogs.";
+            settingsSummaryLabel.Text = "Quick access to common setup and workflow options. Full dialogs remain available from the menu.";
 
             settingsMetadataButton = CreateSettingsButton("Metadata Providers", SettingsMetadataButton_Click);
             settingsFileFormatsButton = CreateSettingsButton("File Format Filter", SettingsFileFormatsButton_Click);
@@ -2502,7 +2502,7 @@ namespace SameEpisodeDuplicateFinder
             shellSeriesTitleLabel.AutoEllipsis = true;
 
             shellSeriesMetaLabel = new Label();
-            shellSeriesMetaLabel.Text = "Scan a folder to populate the Phase 2 shell.";
+            shellSeriesMetaLabel.Text = "Scan one or more folders to populate the workspace.";
             shellSeriesMetaLabel.Dock = DockStyle.Fill;
             shellSeriesMetaLabel.TextAlign = ContentAlignment.TopLeft;
             shellSeriesMetaLabel.AutoEllipsis = true;
@@ -2515,13 +2515,13 @@ namespace SameEpisodeDuplicateFinder
             shellTvDbBadgeLabel = CreateProviderBadgeLabel("TheTVDB", "Not Configured");
             shellTmDbBadgeLabel = CreateProviderBadgeLabel("TMDB", "Not Configured");
 
-            navLibraryButton = CreateNavButton("Library", "Show the existing series selector. Full Library view lands in Phase 2.5.", ShellNavButton_Click);
-            navDuplicatesButton = CreateNavButton("Duplicates", "Show duplicate candidates in the Phase 2 shell.", ShellNavButton_Click);
+            navLibraryButton = CreateNavButton("Library", "Show the scanned series selector.", ShellNavButton_Click);
+            navDuplicatesButton = CreateNavButton("Duplicates", "Show duplicate candidates.", ShellNavButton_Click);
             navMissingEpisodesButton = CreateNavButton("Missing Episodes", "Show the existing Missing Episodes workflow.", ShellNavButton_Click);
             navEpisodeSearchButton = CreateNavButton("Episode Search", "Show the existing Episode Search workflow.", ShellNavButton_Click);
             navSelectedRssButton = CreateNavButton("Selected RSS", "Show the selected RSS feed workflow.", ShellNavButton_Click);
             navActivityButton = CreateNavButton("Activity", "Show history and alert messages.", ShellNavButton_Click);
-            navSettingsButton = CreateNavButton("Settings", "Settings remain available from the menu in this Phase 2 slice.", ShellNavButton_Click);
+            navSettingsButton = CreateNavButton("Settings", "Open common setup shortcuts.", ShellNavButton_Click);
             navLibraryButton.Tag = "Library";
             navDuplicatesButton.Tag = "Duplicates";
             navMissingEpisodesButton.Tag = "MissingEpisodes";
@@ -2558,7 +2558,7 @@ namespace SameEpisodeDuplicateFinder
             sidebarStatsLabel.Dock = DockStyle.Fill;
             sidebarStatsLabel.TextAlign = ContentAlignment.BottomLeft;
             sidebarStatsLabel.ForeColor = SecondaryTextColor;
-            sidebarStatsLabel.Text = "Series selector stays here for Phase 2.";
+            sidebarStatsLabel.Text = "Select a series to focus the workspace.";
             navigationPanel.Controls.Add(sidebarStatsLabel, 0, 9);
 
             var seriesHeader = new TableLayoutPanel();
@@ -3131,7 +3131,7 @@ namespace SameEpisodeDuplicateFinder
                     workflowPanel.Controls.Add(activityGroup, 0, 0);
                     activityGroup.Text = "Library";
                     activityGroup.Visible = true;
-                    UpdateActivity("Library navigation selected. Series selection stays in the left rail for this Phase 2 slice.", true);
+                    UpdateActivity("Library navigation selected. Choose a series from the left rail to focus the workspace.", true);
                 }
                 else if (string.Equals(section, "Settings", StringComparison.OrdinalIgnoreCase))
                 {
