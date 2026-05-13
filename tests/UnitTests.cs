@@ -322,6 +322,14 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertContains(query, "batch", "batch query keyword");
             AssertContains(query, "SubsPlease", "batch query group");
             AssertContains(query, "1080p", "batch query resolution");
+
+            query = EpisodeSearchService.BuildBatchSearchQuery(
+                new MissingEpisode { SeriesTitle = "Bad Girl", Scope = "Main", SearchQuery = "Bad Girl 03" },
+                "",
+                "720p");
+            AssertContains(query, "Bad Girl", "main batch query series title");
+            AssertTrue(!query.Contains("Main"), "main scope should be omitted from batch query");
+            AssertContains(query, "batch", "main batch query keyword");
         }
 
         private static void MergedScanRecomputesDuplicateGroupsAcrossRoots()

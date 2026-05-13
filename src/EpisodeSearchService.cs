@@ -57,7 +57,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 queryParts.Add(episode.SeriesTitle.Trim());
             }
-            if (episode != null && !string.IsNullOrWhiteSpace(episode.Scope) && !string.Equals(episode.Scope, "Series", StringComparison.OrdinalIgnoreCase))
+            if (ShouldIncludeBatchScope(episode == null ? "" : episode.Scope))
             {
                 queryParts.Add(episode.Scope.Trim());
             }
@@ -73,6 +73,13 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return string.Join(" ", queryParts.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
+        }
+
+        internal static bool ShouldIncludeBatchScope(string scope)
+        {
+            return !string.IsNullOrWhiteSpace(scope) &&
+                   !string.Equals(scope, "Series", StringComparison.OrdinalIgnoreCase) &&
+                   !string.Equals(scope, "Main", StringComparison.OrdinalIgnoreCase);
         }
 
         private static List<EpisodeSearchResult> SearchNyaa(string query, int maxResults)
