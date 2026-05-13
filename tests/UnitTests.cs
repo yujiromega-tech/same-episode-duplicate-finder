@@ -19,6 +19,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("file format filter supports ignore and allow-only modes", FileFormatFilterSupportsIgnoreAndAllowOnlyModes);
             Run("scoring prefers resolution, version, then size", ScoringPrefersResolutionVersionThenSize);
             Run("target path generation sanitizes folders and avoids collisions", TargetPathGenerationSanitizesAndAvoidsCollisions);
+            Run("series cover filenames use mapped series title", SeriesCoverFilenamesUseMappedSeriesTitle);
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
@@ -172,6 +173,13 @@ namespace SameEpisodeDuplicateFinder.Tests
                     Directory.Delete(root, true);
                 }
             }
+        }
+
+        private static void SeriesCoverFilenamesUseMappedSeriesTitle()
+        {
+            AssertEqual("Air Gear.jpg", MainForm.GetSeriesCoverFileName("Air Gear"), "plain title cover name");
+            AssertEqual("Dr Stone _ Science Future Part 3.jpg", MainForm.GetSeriesCoverFileName("Dr Stone : Science Future Part 3"), "invalid filename characters should be replaced");
+            AssertEqual("series-cover.jpg", MainForm.GetSeriesCoverFileName(""), "blank title fallback");
         }
 
         private static void ActionReportWriterEscapesCsvFields()

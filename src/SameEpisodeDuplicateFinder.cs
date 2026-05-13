@@ -4264,11 +4264,11 @@ namespace SameEpisodeDuplicateFinder
             {
                 if (string.IsNullOrWhiteSpace(targetFolder))
                 {
-                    result.CoverMessage = "no writable local folder was available for folder.jpg";
+                    result.CoverMessage = "no writable local folder was available for the series-named cover.";
                 }
                 else
                 {
-                    var targetPath = Path.Combine(targetFolder, "folder.jpg");
+                    var targetPath = GetSeriesCoverTargetPath(title, targetFolder);
                     var match = result.MetadataMatch != null && result.MetadataMatch.Found
                         ? result.MetadataMatch
                         : GetAniDbMatchForCover(title, seriesRows);
@@ -4281,7 +4281,7 @@ namespace SameEpisodeDuplicateFinder
                     {
                         DownloadAniDbPicture(match.PictureFile, targetPath);
                         result.CoverSaved = true;
-                        result.CoverMessage = "saved AniDB cover";
+                        result.CoverMessage = "saved AniDB cover as " + Path.GetFileName(targetPath);
                     }
                     else
                     {
@@ -5508,9 +5508,10 @@ namespace SameEpisodeDuplicateFinder
             foreach (var file in files)
             {
                 var folder = GetExistingFolder(file);
+                var startingFolder = folder;
                 while (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
                 {
-                    var cover = FindCoverInFolder(folder);
+                    var cover = FindCoverInFolder(folder, file.Title, PathsEqual(folder, startingFolder));
                     if (!string.IsNullOrWhiteSpace(cover))
                     {
                         return cover;
@@ -5529,8 +5530,22 @@ namespace SameEpisodeDuplicateFinder
             return null;
         }
 
-        private static string FindCoverInFolder(string folder)
+        private static string FindCoverInFolder(string folder, string title, bool allowGenericCoverNames)
         {
+            foreach (var name in GetSeriesCoverCandidateNames(title))
+            {
+                var path = Path.Combine(folder, name);
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+            }
+
+            if (!allowGenericCoverNames)
+            {
+                return null;
+            }
+
             var names = new[]
             {
                 "folder.jpg", "folder.jpeg", "folder.png",
@@ -5550,6 +5565,35 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return null;
+        }
+
+        internal static string GetSeriesCoverFileName(string title)
+        {
+            var safeTitle = GetSafeFolderName(title);
+            if (string.IsNullOrWhiteSpace(safeTitle))
+            {
+                safeTitle = "series-cover";
+            }
+
+            return safeTitle + ".jpg";
+        }
+
+        private static string GetSeriesCoverTargetPath(string title, string folder)
+        {
+            return Path.Combine(folder, GetSeriesCoverFileName(title));
+        }
+
+        private static IEnumerable<string> GetSeriesCoverCandidateNames(string title)
+        {
+            var safeTitle = GetSafeFolderName(title);
+            if (string.IsNullOrWhiteSpace(safeTitle))
+            {
+                yield break;
+            }
+
+            yield return safeTitle + ".jpg";
+            yield return safeTitle + ".jpeg";
+            yield return safeTitle + ".png";
         }
 
         private void Grid_SelectionChanged(object sender, EventArgs e)
@@ -7201,7 +7245,7 @@ namespace SameEpisodeDuplicateFinder
 
             var confirm = MessageBox.Show(
                 this,
-                string.Format("Fetch poster art for {0:N0} series with missing local covers?\r\n\r\nThis can make one or more provider requests per series. AniDB will be tried first at a throttled pace; TVDB and TMDB will be used as backups when configured. Images will be saved as folder.jpg beside the first loaded file for each series.", missing.Count),
+                string.Format("Fetch poster art for {0:N0} series with missing local covers?\r\n\r\nThis can make one or more provider requests per series. AniDB will be tried first at a throttled pace; TVDB and TMDB will be used as backups when configured. Images will be saved beside the first loaded file for each series using the series name, for example Air Gear.jpg.", missing.Count),
                 "Missing Covers",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -7233,17 +7277,17 @@ namespace SameEpisodeDuplicateFinder
                         if (string.IsNullOrWhiteSpace(targetFolder))
                         {
                             skipped++;
-                            failures.Add(group.Key + ": no local folder was available to save folder.jpg.");
+                            failures.Add(group.Key + ": no local folder was available to save the series-named cover.");
                         }
                         else if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                         {
-                            DownloadAniDbPicture(match.PictureFile, Path.Combine(targetFolder, "folder.jpg"));
+                            DownloadAniDbPicture(match.PictureFile, GetSeriesCoverTargetPath(group.Key, targetFolder));
                             saved++;
                         }
                         else
                         {
                             string fallbackMessage;
-                            var targetPath = Path.Combine(targetFolder, "folder.jpg");
+                            var targetPath = GetSeriesCoverTargetPath(group.Key, targetFolder);
                             if (TryDownloadFallbackCover(group.Key, targetPath, out fallbackMessage))
                             {
                                 saved++;
@@ -7265,7 +7309,7 @@ namespace SameEpisodeDuplicateFinder
                         if (!string.IsNullOrWhiteSpace(targetFolder))
                         {
                             string fallbackMessage;
-                            savedByFallback = TryDownloadFallbackCover(group.Key, Path.Combine(targetFolder, "folder.jpg"), out fallbackMessage);
+                            savedByFallback = TryDownloadFallbackCover(group.Key, GetSeriesCoverTargetPath(group.Key, targetFolder), out fallbackMessage);
                             if (!savedByFallback && !string.IsNullOrWhiteSpace(fallbackMessage))
                             {
                                 failures.Add(group.Key + " fallback: " + fallbackMessage);
@@ -7558,7 +7602,7 @@ namespace SameEpisodeDuplicateFinder
                             }
                             else
                             {
-                                DownloadAniDbPicture(pictureFile, Path.Combine(candidate.TargetFolder, "folder.jpg"));
+                                DownloadAniDbPicture(pictureFile, GetSeriesCoverTargetPath(candidate.QueryTitle ?? candidate.Title, candidate.TargetFolder));
                                 saved++;
                             }
                         }
