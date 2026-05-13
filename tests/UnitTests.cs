@@ -25,6 +25,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
+            Run("episode search triggers batch fallback after weak seeded results", EpisodeSearchTriggersBatchFallbackAfterWeakSeededResults);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
             Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
             Run("network paths are detected before deletion", NetworkPathsAreDetectedBeforeDeletion);
@@ -289,6 +290,38 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertContains(link, "magnet:?xt=urn:btih:ABC123", "magnet hash");
             AssertContains(link, "dn=Air%20Gear%2003", "magnet display name");
             AssertEqual("", EpisodeSearchService.BuildMagnetLinkForTest("", "Air Gear 03"), "empty hash");
+        }
+
+        private static void EpisodeSearchTriggersBatchFallbackAfterWeakSeededResults()
+        {
+            var weak = new List<EpisodeSearchResult>
+            {
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 12 }
+            };
+            var notWeak = new List<EpisodeSearchResult>
+            {
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 0 },
+                new EpisodeSearchResult { Seeders = 1 }
+            };
+
+            AssertTrue(EpisodeSearchService.ShouldSearchBatchFallback(weak), "more than three zero-seed results should trigger batch search");
+            AssertTrue(!EpisodeSearchService.ShouldSearchBatchFallback(notWeak), "three zero-seed results should not trigger batch search");
+
+            var query = EpisodeSearchService.BuildBatchSearchQuery(
+                new MissingEpisode { SeriesTitle = "Bad Girl", Scope = "S01", SearchQuery = "Bad Girl 03" },
+                "SubsPlease",
+                "1080p");
+            AssertContains(query, "Bad Girl", "batch query series title");
+            AssertContains(query, "S01", "batch query scope");
+            AssertContains(query, "batch", "batch query keyword");
+            AssertContains(query, "SubsPlease", "batch query group");
+            AssertContains(query, "1080p", "batch query resolution");
         }
 
         private static void MergedScanRecomputesDuplicateGroupsAcrossRoots()

@@ -166,6 +166,7 @@ namespace SameEpisodeDuplicateFinder
         public string Published { get; set; }
         public string Link { get; set; }
         public string MagnetLink { get; set; }
+        public bool IsBatchResult { get; set; }
     }
 
     internal sealed class SelectedSearchFeedItem
@@ -180,6 +181,7 @@ namespace SameEpisodeDuplicateFinder
         public string Published { get; set; }
         public string Link { get; set; }
         public string MagnetLink { get; set; }
+        public bool IsBatchResult { get; set; }
         public DateTime AddedUtc { get; set; }
 
         public string Added

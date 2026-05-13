@@ -28,7 +28,51 @@ namespace SameEpisodeDuplicateFinder
                 queryParts.Add(resolution.Trim());
             }
 
-            return SearchNyaa(string.Join(" ", queryParts.ToArray()), 30);
+            var results = SearchNyaa(string.Join(" ", queryParts.ToArray()), 30);
+            if (ShouldSearchBatchFallback(results))
+            {
+                var batchQuery = BuildBatchSearchQuery(episode, releaseGroup, resolution);
+                var batchResults = SearchNyaa(batchQuery, 10);
+                foreach (var result in batchResults)
+                {
+                    result.Provider = "Nyaa Batch";
+                    result.IsBatchResult = true;
+                }
+
+                results.AddRange(batchResults);
+            }
+
+            return results;
+        }
+
+        internal static bool ShouldSearchBatchFallback(IEnumerable<EpisodeSearchResult> results)
+        {
+            return (results ?? Enumerable.Empty<EpisodeSearchResult>()).Count(x => x != null && x.Seeders == 0) > 3;
+        }
+
+        internal static string BuildBatchSearchQuery(MissingEpisode episode, string releaseGroup, string resolution)
+        {
+            var queryParts = new List<string>();
+            if (episode != null && !string.IsNullOrWhiteSpace(episode.SeriesTitle))
+            {
+                queryParts.Add(episode.SeriesTitle.Trim());
+            }
+            if (episode != null && !string.IsNullOrWhiteSpace(episode.Scope) && !string.Equals(episode.Scope, "Series", StringComparison.OrdinalIgnoreCase))
+            {
+                queryParts.Add(episode.Scope.Trim());
+            }
+
+            queryParts.Add("batch");
+            if (!string.IsNullOrWhiteSpace(releaseGroup))
+            {
+                queryParts.Add(releaseGroup.Trim());
+            }
+            if (!string.IsNullOrWhiteSpace(resolution))
+            {
+                queryParts.Add(resolution.Trim());
+            }
+
+            return string.Join(" ", queryParts.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray());
         }
 
         private static List<EpisodeSearchResult> SearchNyaa(string query, int maxResults)
@@ -52,6 +96,7 @@ namespace SameEpisodeDuplicateFinder
                            .Select(item => new EpisodeSearchResult
                            {
                                Provider = "Nyaa",
+                               SearchQuery = query,
                                Title = InnerText(item, "title"),
                                Link = InnerText(item, "link"),
                                MagnetLink = BuildMagnetLink(InnerText(item, "nyaa:infoHash", manager), InnerText(item, "title")),
