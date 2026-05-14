@@ -2011,12 +2011,12 @@ namespace SameEpisodeDuplicateFinder
             reviewTabs.Dock = DockStyle.Fill;
             reviewTabs.Appearance = TabAppearance.Normal;
             AddReviewTab("All", "All");
-            AddReviewTab("Delete Recommendations", "Delete");
+            AddReviewTab("Delete Recs", "Delete");
             AddReviewTab("Auto High", "AutoHigh");
             AddReviewTab("Auto Medium", "AutoMedium");
             AddReviewTab("Auto Low", "AutoLow");
             AddReviewTab("Needs Review", "NeedsReview");
-            AddReviewTab("Missing Cover", "MissingCover");
+            AddReviewTab("No Cover", "MissingCover");
             AddReviewTab("Marked", "Marked");
             reviewTabs.SelectedIndexChanged += ReviewTabs_SelectedIndexChanged;
 
@@ -2250,6 +2250,9 @@ namespace SameEpisodeDuplicateFinder
             AddTextColumn("AniDbTitle", "Metadata Title", 220);
             AddTextColumn("AniDbYear", "Metadata Year", 96);
             AddTextColumn("SizeBytes", "Size Bytes", 105);
+            SetColumnVisibility("Version", false);
+            SetColumnVisibility("FileLocation", false);
+            SetColumnVisibility("AniDbDisplay", false);
             SetColumnVisibility("Key", false);
             SetColumnVisibility("Title", false);
             SetColumnVisibility("AniDbId", false);
@@ -2290,7 +2293,7 @@ namespace SameEpisodeDuplicateFinder
             metadataGroup.Controls.Add(metadataBox);
 
             shellInspectorTitleLabel = new Label();
-            shellInspectorTitleLabel.Text = "Inspector";
+            shellInspectorTitleLabel.Text = "File Details";
             shellInspectorTitleLabel.Dock = DockStyle.Fill;
             shellInspectorTitleLabel.Font = new Font(Font.FontFamily, 10F, FontStyle.Bold);
             shellInspectorTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -2604,13 +2607,13 @@ namespace SameEpisodeDuplicateFinder
             seriesHeader.ColumnCount = 5;
             seriesHeader.RowCount = 3;
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 32F));
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23F));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20F));
-            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 42F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 22F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Percent, 36F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
+            seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
             seriesHeader.Controls.Add(shellSeriesCoverBox, 0, 0);
             seriesHeader.SetRowSpan(shellSeriesCoverBox, 3);
             seriesHeader.Controls.Add(shellSeriesTitleLabel, 1, 0);
@@ -2625,14 +2628,13 @@ namespace SameEpisodeDuplicateFinder
             providerPanel.Dock = DockStyle.Fill;
             providerPanel.ColumnCount = 1;
             providerPanel.RowCount = 3;
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
             providerPanel.Controls.Add(shellAniDbBadgeLabel, 0, 0);
             providerPanel.Controls.Add(shellTvDbBadgeLabel, 0, 1);
             providerPanel.Controls.Add(shellTmDbBadgeLabel, 0, 2);
-            seriesHeader.Controls.Add(providerPanel, 4, 1);
-            seriesHeader.SetRowSpan(providerPanel, 2);
+            seriesHeader.Controls.Add(providerPanel, 4, 2);
 
             workflowPanel = new TableLayoutPanel();
             workflowPanel.Dock = DockStyle.Fill;
@@ -2649,7 +2651,7 @@ namespace SameEpisodeDuplicateFinder
             mainContentPanel.Tag = "Section";
             mainContentPanel.ColumnCount = 1;
             mainContentPanel.RowCount = 2;
-            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 168));
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 192));
             mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             mainContentPanel.Controls.Add(seriesHeader, 0, 0);
             mainContentPanel.Controls.Add(workflowPanel, 0, 1);
@@ -2727,8 +2729,8 @@ namespace SameEpisodeDuplicateFinder
             label.Dock = DockStyle.Fill;
             label.AutoEllipsis = true;
             label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Padding = new Padding(12, 0, 8, 0);
-            label.Margin = new Padding(0, 0, 10, 0);
+            label.Padding = new Padding(10, 0, 6, 0);
+            label.Margin = new Padding(0, 0, 8, 0);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
         }
@@ -2740,8 +2742,8 @@ namespace SameEpisodeDuplicateFinder
             label.Dock = DockStyle.Fill;
             label.AutoEllipsis = true;
             label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Padding = new Padding(10, 0, 10, 0);
-            label.Margin = new Padding(0, 2, 0, 2);
+            label.Padding = new Padding(8, 0, 8, 0);
+            label.Margin = new Padding(0, 1, 0, 3);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
         }
