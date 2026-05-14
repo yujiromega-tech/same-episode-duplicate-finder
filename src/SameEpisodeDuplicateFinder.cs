@@ -1476,6 +1476,8 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem toolsFileFormatsMenuItem;
         private readonly ToolStripMenuItem toolsOpenMoveReportMenuItem;
         private readonly ToolStripMenuItem toolsMonitorFoldersMenuItem;
+        private readonly ToolStripMenuItem toolsOpenDiagnosticLogMenuItem;
+        private readonly ToolStripMenuItem toolsCopyDiagnosticLogMenuItem;
         private readonly ToolStripMenuItem helpGuideMenuItem;
         private readonly ToolStripMenuItem helpCredentialMenuItem;
         private readonly Label statusLabel;
@@ -1784,6 +1786,12 @@ namespace SameEpisodeDuplicateFinder
             toolsMonitorFoldersMenuItem.ToolTipText = "While the app is running, periodically re-scan current roots and refresh missing episodes.";
             toolsMonitorFoldersMenuItem.CheckOnClick = true;
             toolsMonitorFoldersMenuItem.Click += MonitorFoldersMenuItem_Click;
+            toolsOpenDiagnosticLogMenuItem = new ToolStripMenuItem("Open Diagnostic Log");
+            toolsOpenDiagnosticLogMenuItem.ToolTipText = "Open the live tester log with scans, button actions, provider requests, cover pulls, and errors.";
+            toolsOpenDiagnosticLogMenuItem.Click += OpenDiagnosticLogMenuItem_Click;
+            toolsCopyDiagnosticLogMenuItem = new ToolStripMenuItem("Copy Diagnostic Log Path");
+            toolsCopyDiagnosticLogMenuItem.ToolTipText = "Copy the live tester log path so it can be shared for troubleshooting.";
+            toolsCopyDiagnosticLogMenuItem.Click += CopyDiagnosticLogMenuItem_Click;
             toolsMenu.DropDownItems.Add(toolsClearMarksMenuItem);
             toolsMenu.DropDownItems.Add(toolsAniDbMenuItem);
             toolsMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -1797,6 +1805,9 @@ namespace SameEpisodeDuplicateFinder
             toolsMenu.DropDownItems.Add(toolsFileFormatsMenuItem);
             toolsMenu.DropDownItems.Add(toolsMonitorFoldersMenuItem);
             toolsMenu.DropDownItems.Add(toolsOpenMoveReportMenuItem);
+            toolsMenu.DropDownItems.Add(new ToolStripSeparator());
+            toolsMenu.DropDownItems.Add(toolsOpenDiagnosticLogMenuItem);
+            toolsMenu.DropDownItems.Add(toolsCopyDiagnosticLogMenuItem);
             UpdateAutoMarkThresholdUi();
 
             var helpMenu = new ToolStripMenuItem("Help");
@@ -4587,6 +4598,10 @@ namespace SameEpisodeDuplicateFinder
             {
                 LogActivity(text);
             }
+            else
+            {
+                AppendDiagnosticLog("STATUS", text);
+            }
         }
 
         private void UpdateBusyNotice(bool busy, string text)
@@ -4647,6 +4662,38 @@ namespace SameEpisodeDuplicateFinder
 
             var line = string.Format("[{0:HH:mm:ss}] {1}", DateTime.Now, text);
             activityLogBox.AppendText(line + Environment.NewLine);
+            AppendDiagnosticLog("ACTIVITY", text);
+        }
+
+        private static void AppendDiagnosticLog(string category, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            try
+            {
+                using (var writer = new StreamWriter(GetDiagnosticLogPath(), true, new UTF8Encoding(true)))
+                {
+                    writer.WriteLine("[{0:yyyy-MM-dd HH:mm:ss.fff}] {1}: {2}", DateTime.Now, category, ScrubDiagnosticText(text));
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private static string ScrubDiagnosticText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return "";
+            }
+
+            text = Regex.Replace(text, @"(?i)(api[-_ ]?key|token|bearer|authorization)\s*[:=]\s*\S+", "$1=(hidden)");
+            text = Regex.Replace(text, @"(?i)Bearer\s+[A-Za-z0-9._~+/\-=]+", "Bearer (hidden)");
+            return text;
         }
 
         private static void LogException(string context, Exception ex)
@@ -4659,6 +4706,7 @@ namespace SameEpisodeDuplicateFinder
                     writer.WriteLine(ex == null ? "(no exception details)" : ex.ToString());
                     writer.WriteLine();
                 }
+                AppendDiagnosticLog("ERROR", context + ": " + (ex == null ? "(no exception details)" : ex.Message));
             }
             catch
             {
@@ -4952,6 +5000,35 @@ namespace SameEpisodeDuplicateFinder
 
             Clipboard.SetText(location);
             UpdateActivity("Copied selected RSS feed URL.", true);
+        }
+
+        private void OpenDiagnosticLogMenuItem_Click(object sender, EventArgs e)
+        {
+            EnsureDiagnosticLogExists();
+            UpdateActivity("Opening diagnostic log: " + GetDiagnosticLogPath(), true);
+            OpenShellPath(GetDiagnosticLogPath());
+        }
+
+        private void CopyDiagnosticLogMenuItem_Click(object sender, EventArgs e)
+        {
+            EnsureDiagnosticLogExists();
+            Clipboard.SetText(GetDiagnosticLogPath());
+            UpdateActivity("Copied diagnostic log path.", true);
+        }
+
+        private static void EnsureDiagnosticLogExists()
+        {
+            try
+            {
+                var path = GetDiagnosticLogPath();
+                if (!File.Exists(path))
+                {
+                    File.WriteAllText(path, "", new UTF8Encoding(true));
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void SelectedFeedRemoveButton_Click(object sender, EventArgs e)
@@ -7487,16 +7564,20 @@ namespace SameEpisodeDuplicateFinder
                         }
                         else if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                         {
+                            AppendDiagnosticLog("COVER", group.Key + ": downloading AniDB picture " + match.PictureFile);
                             DownloadAniDbPicture(match.PictureFile, GetSeriesCoverTargetPath(group.Key, targetFolder));
                             saved++;
+                            AppendDiagnosticLog("COVER", group.Key + ": saved AniDB cover.");
                         }
                         else
                         {
                             string fallbackMessage;
                             var targetPath = GetSeriesCoverTargetPath(group.Key, targetFolder);
+                            AppendDiagnosticLog("COVER", group.Key + ": AniDB cover unavailable; trying fallback providers.");
                             if (TryDownloadFallbackCover(group.Key, targetPath, out fallbackMessage))
                             {
                                 saved++;
+                                AppendDiagnosticLog("COVER", group.Key + ": saved fallback cover.");
                             }
                             else
                             {
@@ -7504,6 +7585,7 @@ namespace SameEpisodeDuplicateFinder
                                 if (!string.IsNullOrWhiteSpace(fallbackMessage))
                                 {
                                     failures.Add(group.Key + " fallback: " + fallbackMessage);
+                                    AppendDiagnosticLog("COVER", group.Key + ": fallback failed - " + fallbackMessage);
                                 }
                                 AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
                             }
@@ -7519,6 +7601,7 @@ namespace SameEpisodeDuplicateFinder
                             if (!savedByFallback && !string.IsNullOrWhiteSpace(fallbackMessage))
                             {
                                 failures.Add(group.Key + " fallback: " + fallbackMessage);
+                                AppendDiagnosticLog("COVER", group.Key + ": fallback after exception failed - " + fallbackMessage);
                             }
                         }
 
@@ -7529,6 +7612,7 @@ namespace SameEpisodeDuplicateFinder
                         else
                         {
                             failures.Add(group.Key + ": " + ex.Message);
+                            AppendDiagnosticLog("COVER", group.Key + ": cover fetch failed - " + ex.Message);
                             AddAniDbCoverCandidates(manualCandidates, failures, group.Key, targetFolder);
                         }
                     }
@@ -7565,8 +7649,9 @@ namespace SameEpisodeDuplicateFinder
                     var skipped = (int)result[1];
                     var failures = (List<string>)result[2];
                     var manualCandidates = (List<AniDbTitleCandidate>)result[3];
-                    PopulateSeriesPanel();
-                    UpdateSummary(string.Format("AniDB cover scan complete. Saved {0:N0}; skipped {1:N0}.", saved, skipped));
+                        PopulateSeriesPanel();
+                        UpdateSummary(string.Format("AniDB cover scan complete. Saved {0:N0}; skipped {1:N0}.", saved, skipped));
+                        AppendDiagnosticLog("COVER", string.Format("AniDB cover scan complete. Saved {0:N0}; skipped {1:N0}; failures {2:N0}.", saved, skipped, failures.Count));
                     if (failures.Count > 0)
                     {
                         MessageBox.Show(this, string.Join("\r\n", failures.Take(12).ToArray()), "Some covers could not be fetched", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -7808,13 +7893,16 @@ namespace SameEpisodeDuplicateFinder
                             }
                             else
                             {
+                                AppendDiagnosticLog("COVER", candidate.QueryTitle + " -> " + candidate.Title + ": downloading selected AniDB picture " + pictureFile);
                                 DownloadAniDbPicture(pictureFile, GetSeriesCoverTargetPath(candidate.QueryTitle ?? candidate.Title, candidate.TargetFolder));
                                 saved++;
+                                AppendDiagnosticLog("COVER", candidate.QueryTitle + " -> " + candidate.Title + ": saved selected cover.");
                             }
                         }
                         catch (Exception ex)
                         {
                             failures.Add(candidate.QueryTitle + " -> " + candidate.Title + ": " + ex.Message);
+                            AppendDiagnosticLog("COVER", candidate.QueryTitle + " -> " + candidate.Title + ": selected cover fetch failed - " + ex.Message);
                         }
 
                         if (i + 1 < selected.Count)
@@ -7852,6 +7940,7 @@ namespace SameEpisodeDuplicateFinder
                     ComputeReviewRecommendations(false);
                     RefreshReviewGrids();
                     UpdateSummary(string.Format("Manual AniDB cover fetch complete. Saved {0:N0}; skipped {1:N0}.", saved, skipped));
+                    AppendDiagnosticLog("COVER", string.Format("Manual AniDB cover fetch complete. Saved {0:N0}; skipped {1:N0}; failures {2:N0}.", saved, skipped, failures.Count));
                     if (failures.Count > 0)
                     {
                         MessageBox.Show(this, string.Join("\r\n", failures.Take(12).ToArray()), "Some selected covers could not be fetched", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -8514,6 +8603,11 @@ namespace SameEpisodeDuplicateFinder
         private static string GetErrorLogPath()
         {
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.errors.log");
+        }
+
+        private static string GetDiagnosticLogPath()
+        {
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SameEpisodeDuplicateFinder.diagnostics.log");
         }
 
         private void SaveSelectedFeed()
