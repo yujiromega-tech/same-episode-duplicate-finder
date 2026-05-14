@@ -1389,6 +1389,55 @@ namespace SameEpisodeDuplicateFinder
         }
     }
 
+    internal sealed class ModernGroupBox : GroupBox
+    {
+        public Color BorderColor { get; set; }
+        public Color HeaderBackColor { get; set; }
+        public Color TitleColor { get; set; }
+
+        public ModernGroupBox()
+        {
+            BorderColor = Color.FromArgb(64, 76, 88);
+            HeaderBackColor = Color.FromArgb(20, 28, 33);
+            TitleColor = Color.White;
+            DoubleBuffered = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(BackColor);
+            var headerHeight = Math.Max(22, Font.Height + 8);
+            var borderTop = headerHeight / 2;
+            using (var borderPen = new Pen(BorderColor, 1F))
+            {
+                var border = new Rectangle(0, borderTop, Width - 1, Height - borderTop - 1);
+                e.Graphics.DrawRectangle(borderPen, border);
+            }
+
+            var title = Text ?? string.Empty;
+            if (title.Length == 0)
+            {
+                return;
+            }
+
+            var titleSize = TextRenderer.MeasureText(title, Font);
+            var titleRect = new Rectangle(10, 0, Math.Min(Width - 20, titleSize.Width + 16), headerHeight);
+            using (var backBrush = new SolidBrush(HeaderBackColor))
+            {
+                e.Graphics.FillRectangle(backBrush, titleRect);
+            }
+
+            var textRect = new Rectangle(titleRect.Left + 8, 0, titleRect.Width - 16, headerHeight);
+            TextRenderer.DrawText(
+                e.Graphics,
+                title,
+                Font,
+                textRect,
+                TitleColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+    }
+
     internal sealed class MainForm : Form
     {
         private const string AllSeriesTag = "__ALL_SERIES__";
@@ -1771,6 +1820,7 @@ namespace SameEpisodeDuplicateFinder
             topPanel.Height = 96;
             topPanel.Padding = new Padding(14, 10, 14, 8);
             topPanel.BackColor = PanelBackColor;
+            topPanel.Tag = "CommandBar";
             topPanel.ColumnCount = 1;
             topPanel.RowCount = 3;
             topPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -2226,11 +2276,7 @@ namespace SameEpisodeDuplicateFinder
             detailsBox.Text = "Select a file to see details.";
             detailsBox.LinkClicked += DetailsBox_LinkClicked;
 
-            detailsGroup = new GroupBox();
-            detailsGroup.Text = "Details";
-            detailsGroup.Dock = DockStyle.Fill;
-            detailsGroup.Padding = new Padding(8);
-            StyleGroupBox(detailsGroup);
+            detailsGroup = CreateSectionGroup("Details", new Padding(8));
             detailsGroup.Controls.Add(detailsBox);
 
             metadataBox = new Label();
@@ -2240,11 +2286,7 @@ namespace SameEpisodeDuplicateFinder
             metadataBox.Padding = new Padding(2);
             metadataBox.Text = "Select a row to see provider match details.";
 
-            metadataGroup = new GroupBox();
-            metadataGroup.Text = "Metadata Match";
-            metadataGroup.Dock = DockStyle.Fill;
-            metadataGroup.Padding = new Padding(8);
-            StyleGroupBox(metadataGroup);
+            metadataGroup = CreateSectionGroup("Metadata Match", new Padding(8));
             metadataGroup.Controls.Add(metadataBox);
 
             shellInspectorTitleLabel = new Label();
@@ -2294,11 +2336,7 @@ namespace SameEpisodeDuplicateFinder
             inspectorOpenFolderButton.Click += InspectorOpenFolderButton_Click;
             StyleButton(inspectorOpenFolderButton, false);
 
-            seriesGroup = new GroupBox();
-            seriesGroup.Text = "Series";
-            seriesGroup.Dock = DockStyle.Fill;
-            seriesGroup.Padding = new Padding(8);
-            StyleGroupBox(seriesGroup);
+            seriesGroup = CreateSectionGroup("Series", new Padding(8));
 
             var seriesPanel = new TableLayoutPanel();
             seriesPanel.Dock = DockStyle.Fill;
@@ -2334,11 +2372,7 @@ namespace SameEpisodeDuplicateFinder
             StyleSeriesCoverView();
             UpdateSeriesPanelMode();
 
-            candidatesGroup = new GroupBox();
-            candidatesGroup.Text = "Candidates";
-            candidatesGroup.Dock = DockStyle.Fill;
-            candidatesGroup.Padding = new Padding(8);
-            StyleGroupBox(candidatesGroup);
+            candidatesGroup = CreateSectionGroup("Candidates", new Padding(8));
 
             var candidatesPanel = new TableLayoutPanel();
             candidatesPanel.Dock = DockStyle.Fill;
@@ -2354,11 +2388,7 @@ namespace SameEpisodeDuplicateFinder
             candidatesCloseButton = CreatePanelCloseButton("Hide the Candidates panel.", ToggleCandidatesButton_Click);
             AttachPanelCloseButton(candidatesGroup, candidatesCloseButton);
 
-            deletionGroup = new GroupBox();
-            deletionGroup.Text = "Ready to Remove";
-            deletionGroup.Dock = DockStyle.Fill;
-            deletionGroup.Padding = new Padding(8);
-            StyleGroupBox(deletionGroup);
+            deletionGroup = CreateSectionGroup("Ready to Remove", new Padding(8));
 
             var deletionPanel = new TableLayoutPanel();
             deletionPanel.Dock = DockStyle.Fill;
@@ -2376,11 +2406,7 @@ namespace SameEpisodeDuplicateFinder
             deletionCloseButton = CreatePanelCloseButton("Hide the Ready to Remove panel.", ToggleReadyButton_Click);
             AttachPanelCloseButton(deletionGroup, deletionCloseButton);
 
-            missingEpisodesGroup = new GroupBox();
-            missingEpisodesGroup.Text = "Missing Episodes";
-            missingEpisodesGroup.Dock = DockStyle.Fill;
-            missingEpisodesGroup.Padding = new Padding(8);
-            StyleGroupBox(missingEpisodesGroup);
+            missingEpisodesGroup = CreateSectionGroup("Missing Episodes", new Padding(8));
 
             var missingEpisodesPanel = new TableLayoutPanel();
             missingEpisodesPanel.Dock = DockStyle.Fill;
@@ -2394,11 +2420,7 @@ namespace SameEpisodeDuplicateFinder
             missingEpisodesCloseButton = CreatePanelCloseButton("Hide the Missing Episodes panel.", ToggleMissingEpisodesButton_Click);
             AttachPanelCloseButton(missingEpisodesGroup, missingEpisodesCloseButton);
 
-            episodeSearchGroup = new GroupBox();
-            episodeSearchGroup.Text = "Episode Search";
-            episodeSearchGroup.Dock = DockStyle.Fill;
-            episodeSearchGroup.Padding = new Padding(8);
-            StyleGroupBox(episodeSearchGroup);
+            episodeSearchGroup = CreateSectionGroup("Episode Search", new Padding(8));
 
             var episodeSearchPanel = new TableLayoutPanel();
             episodeSearchPanel.Dock = DockStyle.Fill;
@@ -2434,11 +2456,7 @@ namespace SameEpisodeDuplicateFinder
             episodeSearchCloseButton = CreatePanelCloseButton("Hide the Episode Search panel.", ToggleEpisodeSearchButton_Click);
             AttachPanelCloseButton(episodeSearchGroup, episodeSearchCloseButton);
 
-            selectedFeedGroup = new GroupBox();
-            selectedFeedGroup.Text = "Selected RSS Feed";
-            selectedFeedGroup.Dock = DockStyle.Fill;
-            selectedFeedGroup.Padding = new Padding(8);
-            StyleGroupBox(selectedFeedGroup);
+            selectedFeedGroup = CreateSectionGroup("Selected RSS Feed", new Padding(8));
 
             var selectedFeedPanel = new TableLayoutPanel();
             selectedFeedPanel.Dock = DockStyle.Fill;
@@ -2469,18 +2487,10 @@ namespace SameEpisodeDuplicateFinder
             selectedFeedCloseButton = CreatePanelCloseButton("Hide the Selected RSS Feed panel.", ToggleSelectedFeedButton_Click);
             AttachPanelCloseButton(selectedFeedGroup, selectedFeedCloseButton);
 
-            activityGroup = new GroupBox();
-            activityGroup.Text = "History / Alerts";
-            activityGroup.Dock = DockStyle.Fill;
-            activityGroup.Padding = new Padding(8);
-            StyleGroupBox(activityGroup);
+            activityGroup = CreateSectionGroup("History / Alerts", new Padding(8));
             activityGroup.Controls.Add(activityLogBox);
 
-            settingsGroup = new GroupBox();
-            settingsGroup.Text = "Settings";
-            settingsGroup.Dock = DockStyle.Fill;
-            settingsGroup.Padding = new Padding(10);
-            StyleGroupBox(settingsGroup);
+            settingsGroup = CreateSectionGroup("Settings", new Padding(10));
 
             var settingsPanel = new TableLayoutPanel();
             settingsPanel.Dock = DockStyle.Fill;
@@ -2533,9 +2543,9 @@ namespace SameEpisodeDuplicateFinder
             shellSeriesMetaLabel.AutoEllipsis = true;
             shellSeriesMetaLabel.ForeColor = SecondaryTextColor;
 
-            shellScannedStatLabel = CreateShellStatLabel("Scanned Files\r\n0");
-            shellDuplicateStatLabel = CreateShellStatLabel("Duplicate Candidates\r\n0");
-            shellMissingStatLabel = CreateShellStatLabel("Missing Episodes\r\n0");
+            shellScannedStatLabel = CreateShellStatLabel("Scanned\r\n0 files");
+            shellDuplicateStatLabel = CreateShellStatLabel("Duplicates\r\n0 groups");
+            shellMissingStatLabel = CreateShellStatLabel("Missing\r\n0 episodes");
             shellAniDbBadgeLabel = CreateProviderBadgeLabel("AniDB", "Ready");
             shellTvDbBadgeLabel = CreateProviderBadgeLabel("TheTVDB", "Not Configured");
             shellTmDbBadgeLabel = CreateProviderBadgeLabel("TMDB", "Not Configured");
@@ -2560,6 +2570,7 @@ namespace SameEpisodeDuplicateFinder
             navigationPanel.ColumnCount = 1;
             navigationPanel.RowCount = 10;
             navigationPanel.Padding = new Padding(10, 8, 10, 8);
+            navigationPanel.Tag = "Sidebar";
             navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
             navigationPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
@@ -2589,6 +2600,7 @@ namespace SameEpisodeDuplicateFinder
             var seriesHeader = new TableLayoutPanel();
             seriesHeader.Dock = DockStyle.Fill;
             seriesHeader.Padding = new Padding(14, 12, 14, 12);
+            seriesHeader.Tag = "Section";
             seriesHeader.ColumnCount = 5;
             seriesHeader.RowCount = 3;
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 136));
@@ -2633,6 +2645,8 @@ namespace SameEpisodeDuplicateFinder
 
             var mainContentPanel = new TableLayoutPanel();
             mainContentPanel.Dock = DockStyle.Fill;
+            mainContentPanel.Padding = new Padding(8, 8, 8, 8);
+            mainContentPanel.Tag = "Section";
             mainContentPanel.ColumnCount = 1;
             mainContentPanel.RowCount = 2;
             mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 168));
@@ -2643,6 +2657,7 @@ namespace SameEpisodeDuplicateFinder
             var inspectorPanel = new TableLayoutPanel();
             inspectorPanel.Dock = DockStyle.Fill;
             inspectorPanel.Padding = new Padding(10, 8, 10, 8);
+            inspectorPanel.Tag = "Inspector";
             inspectorPanel.ColumnCount = 1;
             inspectorPanel.RowCount = 10;
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
@@ -2758,6 +2773,16 @@ namespace SameEpisodeDuplicateFinder
             return button;
         }
 
+        private GroupBox CreateSectionGroup(string text, Padding padding)
+        {
+            var group = new ModernGroupBox();
+            group.Text = text;
+            group.Dock = DockStyle.Fill;
+            group.Padding = padding;
+            StyleGroupBox(group);
+            return group;
+        }
+
         private static Icon CreateAppIcon()
         {
             using (var bitmap = new Bitmap(32, 32))
@@ -2870,17 +2895,17 @@ namespace SameEpisodeDuplicateFinder
 
         private Color AppBackColor
         {
-            get { return darkMode ? Color.FromArgb(14, 20, 24) : Color.FromArgb(245, 247, 250); }
+            get { return darkMode ? Color.FromArgb(12, 18, 22) : Color.FromArgb(242, 245, 248); }
         }
 
         private Color PanelBackColor
         {
-            get { return darkMode ? Color.FromArgb(23, 31, 36) : Color.White; }
+            get { return darkMode ? Color.FromArgb(20, 28, 33) : Color.White; }
         }
 
         private Color HeaderBackColor
         {
-            get { return darkMode ? Color.FromArgb(30, 41, 48) : Color.FromArgb(241, 245, 249); }
+            get { return darkMode ? Color.FromArgb(27, 37, 44) : Color.FromArgb(239, 244, 250); }
         }
 
         private Color PrimaryTextColor
@@ -2895,7 +2920,7 @@ namespace SameEpisodeDuplicateFinder
 
         private Color BorderColor
         {
-            get { return darkMode ? Color.FromArgb(52, 68, 78) : Color.FromArgb(196, 205, 218); }
+            get { return darkMode ? Color.FromArgb(45, 58, 67) : Color.FromArgb(191, 202, 216); }
         }
 
         private Color GridLineColor
@@ -2950,7 +2975,22 @@ namespace SameEpisodeDuplicateFinder
 
         private Color AccentColor
         {
-            get { return darkMode ? Color.FromArgb(59, 130, 246) : Color.FromArgb(0, 95, 184); }
+            get { return darkMode ? Color.FromArgb(49, 132, 255) : Color.FromArgb(0, 95, 184); }
+        }
+
+        private Color SidebarBackColor
+        {
+            get { return darkMode ? Color.FromArgb(15, 23, 28) : Color.FromArgb(248, 250, 252); }
+        }
+
+        private Color InspectorBackColor
+        {
+            get { return darkMode ? Color.FromArgb(18, 25, 30) : Color.FromArgb(248, 250, 252); }
+        }
+
+        private Color SectionTitleColor
+        {
+            get { return darkMode ? Color.FromArgb(226, 232, 240) : Color.FromArgb(15, 23, 42); }
         }
 
         private void StyleButton(Button button, bool emphasis)
@@ -2961,6 +3001,7 @@ namespace SameEpisodeDuplicateFinder
             button.BackColor = emphasis ? AccentColor : HeaderBackColor;
             button.ForeColor = emphasis ? Color.White : PrimaryTextColor;
             button.Margin = new Padding(3);
+            button.Cursor = Cursors.Hand;
         }
 
         private void StyleDeleteButton(Button button)
@@ -3034,7 +3075,8 @@ namespace SameEpisodeDuplicateFinder
             targetGrid.AlternatingRowsDefaultCellStyle.BackColor = AlternateRowColor;
             targetGrid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             targetGrid.ColumnHeadersHeight = 32;
-            targetGrid.RowTemplate.Height = 28;
+            targetGrid.RowTemplate.Height = 30;
+            targetGrid.DefaultCellStyle.Padding = new Padding(4, 0, 4, 0);
             targetGrid.Refresh();
         }
 
@@ -3063,7 +3105,15 @@ namespace SameEpisodeDuplicateFinder
         private void StyleGroupBox(GroupBox groupBox)
         {
             groupBox.BackColor = PanelBackColor;
-            groupBox.ForeColor = darkMode ? Color.FromArgb(147, 197, 253) : AccentColor;
+            groupBox.ForeColor = SectionTitleColor;
+            var modern = groupBox as ModernGroupBox;
+            if (modern != null)
+            {
+                modern.BorderColor = BorderColor;
+                modern.HeaderBackColor = PanelBackColor;
+                modern.TitleColor = SectionTitleColor;
+                modern.Invalidate();
+            }
         }
 
         private Button CreatePanelCloseButton(string tooltip, EventHandler clickHandler)
@@ -3077,6 +3127,7 @@ namespace SameEpisodeDuplicateFinder
             button.BackColor = PanelBackColor;
             button.ForeColor = SecondaryTextColor;
             button.Font = new Font(Font.FontFamily, 8F, FontStyle.Bold);
+            button.Tag = "CloseButton";
             button.Click += clickHandler;
             toolTip.SetToolTip(button, tooltip);
             return button;
@@ -3323,7 +3374,27 @@ namespace SameEpisodeDuplicateFinder
 
             if (control == this || control is TableLayoutPanel || control is Panel)
             {
-                control.BackColor = control == this || control == workspacePanel ? AppBackColor : PanelBackColor;
+                var tag = Convert.ToString(control.Tag);
+                if (control == this || control == workspacePanel)
+                {
+                    control.BackColor = AppBackColor;
+                }
+                else if (string.Equals(tag, "Sidebar", StringComparison.OrdinalIgnoreCase))
+                {
+                    control.BackColor = SidebarBackColor;
+                }
+                else if (string.Equals(tag, "Inspector", StringComparison.OrdinalIgnoreCase))
+                {
+                    control.BackColor = InspectorBackColor;
+                }
+                else if (string.Equals(tag, "CommandBar", StringComparison.OrdinalIgnoreCase))
+                {
+                    control.BackColor = darkMode ? Color.FromArgb(13, 19, 24) : PanelBackColor;
+                }
+                else
+                {
+                    control.BackColor = PanelBackColor;
+                }
             }
             else if (control is GroupBox)
             {
@@ -3342,9 +3413,21 @@ namespace SameEpisodeDuplicateFinder
             else if (control is Button)
             {
                 var button = (Button)control;
-                if (button == deleteButton)
+                if (button == deleteButton || button == inspectorDeleteButton)
                 {
                     StyleDeleteButton(button);
+                }
+                else if (button == topScanButton || button == inspectorKeepButton)
+                {
+                    StyleButton(button, true);
+                }
+                else if (string.Equals(Convert.ToString(button.Tag), "CloseButton", StringComparison.OrdinalIgnoreCase))
+                {
+                    button.FlatStyle = FlatStyle.Flat;
+                    button.FlatAppearance.BorderSize = 0;
+                    button.BackColor = PanelBackColor;
+                    button.ForeColor = SecondaryTextColor;
+                    button.Cursor = Cursors.Hand;
                 }
                 else
                 {
@@ -4190,9 +4273,9 @@ namespace SameEpisodeDuplicateFinder
                 seriesRows.Count,
                 EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows),
                 GetProviderStatusSummary());
-            shellScannedStatLabel.Text = string.Format("Scanned Files\r\n{0:N0}", seriesRows.Count);
-            shellDuplicateStatLabel.Text = string.Format("Duplicate Candidates\r\n{0:N0} episode(s) / {1:N0} file(s)", EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows), duplicateRows.Count);
-            shellMissingStatLabel.Text = string.Format("Missing Episodes\r\n{0:N0}", missingRows.Sum(x => x.MissingCount));
+            shellScannedStatLabel.Text = string.Format("Scanned\r\n{0:N0} file(s)", seriesRows.Count);
+            shellDuplicateStatLabel.Text = string.Format("Duplicates\r\n{0:N0} group(s), {1:N0} file(s)", EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows), duplicateRows.Count);
+            shellMissingStatLabel.Text = string.Format("Missing\r\n{0:N0} episode(s)", missingRows.Sum(x => x.MissingCount));
             UpdateProviderBadge(shellAniDbBadgeLabel, "AniDB", "HTTP Ready", true);
             UpdateProviderBadge(shellTvDbBadgeLabel, "TheTVDB", TvDbSettingsStore.Load().HasApiKey ? "Connected" : "Not Configured", TvDbSettingsStore.Load().HasApiKey);
             UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", TmDbSettingsStore.Load().HasReadAccessToken ? "Connected" : "Not Configured", TmDbSettingsStore.Load().HasReadAccessToken);
@@ -5454,14 +5537,15 @@ namespace SameEpisodeDuplicateFinder
             }
 
             button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderSize = 1;
-            button.FlatAppearance.BorderColor = AccentColor;
+            button.FlatAppearance.BorderSize = selected ? 1 : 0;
+            button.FlatAppearance.BorderColor = selected ? AccentColor : BorderColor;
             button.BackColor = selected
-                ? (darkMode ? Color.FromArgb(26, 70, 112) : Color.FromArgb(219, 234, 254))
-                : (darkMode ? Color.FromArgb(18, 26, 31) : PanelBackColor);
+                ? (darkMode ? Color.FromArgb(30, 55, 78) : Color.FromArgb(219, 234, 254))
+                : SidebarBackColor;
             button.ForeColor = selected
                 ? (darkMode ? Color.White : Color.FromArgb(30, 64, 175))
                 : PrimaryTextColor;
+            button.Cursor = Cursors.Hand;
         }
 
         private void ApplySeriesFilter(object tag)
