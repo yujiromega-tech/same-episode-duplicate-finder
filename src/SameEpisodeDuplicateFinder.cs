@@ -615,6 +615,7 @@ namespace SameEpisodeDuplicateFinder
         public string Year { get; set; }
         public string PictureFile { get; set; }
         public string Error { get; set; }
+        public int Score { get; set; }
 
         public bool Found
         {
@@ -1441,6 +1442,7 @@ namespace SameEpisodeDuplicateFinder
     internal sealed class MainForm : Form
     {
         private const string AllSeriesTag = "__ALL_SERIES__";
+        private const int MinimumAutomaticAniDbMatchScore = 85;
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
@@ -4402,11 +4404,13 @@ namespace SameEpisodeDuplicateFinder
                         : GetAniDbMatchForCover(title, seriesRows);
                     if (match != null && match.Found && string.IsNullOrWhiteSpace(match.PictureFile))
                     {
+                        AppendDiagnosticLog("COVER", title + ": downloading AniDB picture for match " + match.Title + " (score " + match.Score.ToString("N0") + ")");
                         match.PictureFile = AniDbClient.GetAnimePictureFile(match.AniDbId);
                     }
 
                     if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                     {
+                        AppendDiagnosticLog("COVER", title + ": saving AniDB cover from " + match.Title + " (score " + match.Score.ToString("N0") + ")");
                         DownloadAniDbPicture(match.PictureFile, targetPath);
                         result.CoverSaved = true;
                         result.CoverMessage = "saved AniDB cover as " + Path.GetFileName(targetPath);
@@ -4451,7 +4455,7 @@ namespace SameEpisodeDuplicateFinder
         private static string BuildShellSeriesFetchMessage(ShellSeriesFetchResult result)
         {
             var metadata = result.MetadataMatch != null && result.MetadataMatch.Found
-                ? "metadata matched " + DisplayOrDash(result.MetadataMatch.Title)
+                ? "metadata matched " + DisplayOrDash(result.MetadataMatch.Title) + " (score " + result.MetadataMatch.Score.ToString("N0") + ")"
                 : "metadata " + DisplayOrDash(result.MetadataError ?? (result.MetadataMatch == null ? "" : result.MetadataMatch.Error));
             var cover = result.CoverSaved ? result.CoverMessage : "cover " + DisplayOrDash(result.CoverMessage);
             return "Selected-series fetch: " + result.Title + " | " + metadata + " | " + cover;
@@ -7697,8 +7701,16 @@ namespace SameEpisodeDuplicateFinder
                     return match;
                 }
 
+                if (!IsAutomaticAniDbMatchConfident(candidate))
+                {
+                    match.Error = BuildLowConfidenceAniDbMessage(candidate);
+                    AppendDiagnosticLog("METADATA", title + ": " + match.Error);
+                    return match;
+                }
+
                 match.AniDbId = candidate.AniDbId;
                 match.Title = candidate.Title;
+                match.Score = candidate.Score;
             }
 
             if (match.Found)
@@ -8196,12 +8208,36 @@ namespace SameEpisodeDuplicateFinder
                 return new AniDbAnimeResult { QueryTitle = title, Error = "No AniDB match" };
             }
 
+            if (!IsAutomaticAniDbMatchConfident(candidate))
+            {
+                return new AniDbAnimeResult { QueryTitle = title, Error = BuildLowConfidenceAniDbMessage(candidate), Score = candidate.Score };
+            }
+
             return new AniDbAnimeResult
             {
                 AniDbId = candidate.AniDbId,
                 QueryTitle = title,
-                Title = candidate.Title
+                Title = candidate.Title,
+                Score = candidate.Score
             };
+        }
+
+        internal static bool IsAutomaticAniDbMatchConfident(AniDbTitleCandidate candidate)
+        {
+            return candidate != null && candidate.Score >= MinimumAutomaticAniDbMatchScore;
+        }
+
+        private static string BuildLowConfidenceAniDbMessage(AniDbTitleCandidate candidate)
+        {
+            if (candidate == null)
+            {
+                return "No AniDB match";
+            }
+
+            return string.Format(
+                "Low-confidence AniDB match ignored: {0} (score {1:N0})",
+                string.IsNullOrWhiteSpace(candidate.Title) ? "unknown title" : candidate.Title,
+                candidate.Score);
         }
 
         private static List<AniDbTitleCandidate> FindAniDbCandidates(string title, string targetFolder, int maxResults)

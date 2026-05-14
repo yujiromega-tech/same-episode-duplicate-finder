@@ -24,6 +24,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
+            Run("automatic AniDB matches require high confidence", AutomaticAniDbMatchesRequireHighConfidence);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
             Run("episode search triggers full-season fallback after weak seeded results", EpisodeSearchTriggersFullSeasonFallbackAfterWeakSeededResults);
@@ -228,6 +229,13 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(titles.Contains("Dr. Stone: Science Future"), "part suffix should be optional for cover lookup");
             AssertTrue(titles.Contains("Dr. Stone"), "base series should be a fallback");
             AssertTrue(titles.IndexOf("Dr. Stone: Science Future") < titles.IndexOf("Dr. Stone"), "specific title should be tried before base series");
+        }
+
+        private static void AutomaticAniDbMatchesRequireHighConfidence()
+        {
+            AssertTrue(MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Bad Girl", Score = 100 }), "exact title should be safe for automatic metadata/cover use");
+            AssertTrue(MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Sousou no Frieren", Score = 85 }), "base-series match should remain usable");
+            AssertTrue(!MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Unrelated low-confidence title", Score = 35 }), "weak AniDB title matches should require manual review");
         }
 
         private static void MissingEpisodeFinderReportsLocalGaps()
