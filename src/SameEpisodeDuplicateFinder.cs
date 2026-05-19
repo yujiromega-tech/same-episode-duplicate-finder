@@ -1565,6 +1565,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly Button settingsFileBotButton;
         private readonly TableLayoutPanel workspacePanel;
         private readonly TableLayoutPanel workflowPanel;
+        private readonly SplitContainer duplicateWorkflowSplit;
         private readonly GroupBox seriesGroup;
         private readonly GroupBox activityGroup;
         private readonly GroupBox detailsGroup;
@@ -2667,8 +2668,18 @@ namespace SameEpisodeDuplicateFinder
             workflowPanel.RowCount = 2;
             workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 68F));
             workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 32F));
-            workflowPanel.Controls.Add(candidatesGroup, 0, 0);
-            workflowPanel.Controls.Add(deletionGroup, 0, 1);
+
+            duplicateWorkflowSplit = new SplitContainer();
+            duplicateWorkflowSplit.Dock = DockStyle.Fill;
+            duplicateWorkflowSplit.Orientation = Orientation.Horizontal;
+            duplicateWorkflowSplit.SplitterWidth = 7;
+            duplicateWorkflowSplit.Panel1MinSize = 220;
+            duplicateWorkflowSplit.Panel2MinSize = 180;
+            duplicateWorkflowSplit.FixedPanel = FixedPanel.None;
+            duplicateWorkflowSplit.Panel1.Controls.Add(candidatesGroup);
+            duplicateWorkflowSplit.Panel2.Controls.Add(deletionGroup);
+            duplicateWorkflowSplit.SplitterMoved += DuplicateWorkflowSplit_SplitterMoved;
+            workflowPanel.Controls.Add(duplicateWorkflowSplit, 0, 0);
 
             var mainContentPanel = new TableLayoutPanel();
             mainContentPanel.Dock = DockStyle.Fill;
@@ -3252,26 +3263,26 @@ namespace SameEpisodeDuplicateFinder
                 else
                 {
                     activityGroup.Text = "History / Alerts";
-                    workflowPanel.RowCount = 2;
+                    workflowPanel.RowCount = 1;
                     workflowPanel.RowStyles.Clear();
-                    workflowPanel.RowStyles.Add(deletionVisible
-                        ? new RowStyle(SizeType.Percent, 60F)
-                        : new RowStyle(SizeType.Percent, 100F));
-                    workflowPanel.RowStyles.Add(deletionVisible
-                        ? new RowStyle(SizeType.Percent, 40F)
-                        : new RowStyle(SizeType.Absolute, 0F));
+                    workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
                     if (candidatesVisible)
                     {
-                        workflowPanel.Controls.Add(candidatesGroup, 0, 0);
-                        candidatesGroup.MinimumSize = Size.Empty;
-                    }
-                    if (deletionVisible)
-                    {
-                        workflowPanel.Controls.Add(deletionGroup, 0, 1);
-                        deletionGroup.MinimumSize = Size.Empty;
+                        if (deletionVisible)
+                        {
+                            duplicateWorkflowSplit.Panel1.Controls.Add(candidatesGroup);
+                            duplicateWorkflowSplit.Panel2.Controls.Add(deletionGroup);
+                            workflowPanel.Controls.Add(duplicateWorkflowSplit, 0, 0);
+                            ApplyDuplicateWorkflowSplitterDistance();
+                        }
+                        else
+                        {
+                            workflowPanel.Controls.Add(candidatesGroup, 0, 0);
+                        }
                     }
                     candidatesGroup.Visible = candidatesVisible;
                     deletionGroup.Visible = deletionVisible;
+                    duplicateWorkflowSplit.Visible = candidatesVisible && deletionVisible;
                 }
 
                 workflowPanel.ResumeLayout();
@@ -3285,6 +3296,42 @@ namespace SameEpisodeDuplicateFinder
             UpdateWorkspaceMenuState();
             UpdateShellNavigationState();
             UpdateShellSeriesHeader();
+        }
+
+        private void ApplyDuplicateWorkflowSplitterDistance()
+        {
+            if (duplicateWorkflowSplit == null || !duplicateWorkflowSplit.Visible)
+            {
+                return;
+            }
+
+            var height = duplicateWorkflowSplit.ClientSize.Height;
+            if (height <= 0)
+            {
+                duplicateWorkflowSplit.BeginInvoke(new Action(ApplyDuplicateWorkflowSplitterDistance));
+                return;
+            }
+
+            var minimumTop = duplicateWorkflowSplit.Panel1MinSize;
+            var minimumBottom = duplicateWorkflowSplit.Panel2MinSize;
+            var available = height - duplicateWorkflowSplit.SplitterWidth;
+            if (available <= minimumTop + minimumBottom)
+            {
+                duplicateWorkflowSplit.Panel1MinSize = Math.Max(120, available / 2);
+                duplicateWorkflowSplit.Panel2MinSize = Math.Max(120, available - duplicateWorkflowSplit.Panel1MinSize);
+                return;
+            }
+
+            var target = Math.Max(minimumTop, Math.Min(available - minimumBottom, (int)(available * 0.56)));
+            if (Math.Abs(duplicateWorkflowSplit.SplitterDistance - target) > 8)
+            {
+                duplicateWorkflowSplit.SplitterDistance = target;
+            }
+        }
+
+        private void DuplicateWorkflowSplit_SplitterMoved(object sender, SplitterEventArgs e)
+        {
+            AppendDiagnosticLog("UI", "Duplicate workflow splitter moved. Candidates height " + duplicateWorkflowSplit.SplitterDistance.ToString("N0") + " px.");
         }
 
         private void UpdateWorkspaceMenuState()
