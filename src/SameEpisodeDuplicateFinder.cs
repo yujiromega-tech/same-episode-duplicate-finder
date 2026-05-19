@@ -2652,9 +2652,9 @@ namespace SameEpisodeDuplicateFinder
             providerPanel.Dock = DockStyle.Fill;
             providerPanel.ColumnCount = 1;
             providerPanel.RowCount = 3;
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-            providerPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
             providerPanel.Controls.Add(shellAniDbBadgeLabel, 0, 0);
             providerPanel.Controls.Add(shellTvDbBadgeLabel, 0, 1);
             providerPanel.Controls.Add(shellTmDbBadgeLabel, 0, 2);
@@ -2662,7 +2662,7 @@ namespace SameEpisodeDuplicateFinder
 
             workflowPanel = new TableLayoutPanel();
             workflowPanel.Dock = DockStyle.Fill;
-            workflowPanel.AutoScroll = true;
+            workflowPanel.AutoScroll = false;
             workflowPanel.ColumnCount = 1;
             workflowPanel.RowCount = 2;
             workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 68F));
@@ -2676,7 +2676,7 @@ namespace SameEpisodeDuplicateFinder
             mainContentPanel.Tag = "Section";
             mainContentPanel.ColumnCount = 1;
             mainContentPanel.RowCount = 2;
-            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 192));
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
             mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             mainContentPanel.Controls.Add(seriesHeader, 0, 0);
             mainContentPanel.Controls.Add(workflowPanel, 0, 1);
@@ -2768,7 +2768,7 @@ namespace SameEpisodeDuplicateFinder
             label.AutoEllipsis = true;
             label.TextAlign = ContentAlignment.MiddleCenter;
             label.Padding = new Padding(4, 0, 4, 0);
-            label.Margin = new Padding(0, 1, 0, 3);
+            label.Margin = new Padding(0, 1, 0, 1);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
         }
@@ -3255,20 +3255,20 @@ namespace SameEpisodeDuplicateFinder
                     workflowPanel.RowCount = 2;
                     workflowPanel.RowStyles.Clear();
                     workflowPanel.RowStyles.Add(deletionVisible
-                        ? new RowStyle(SizeType.Percent, 62F)
+                        ? new RowStyle(SizeType.Percent, 60F)
                         : new RowStyle(SizeType.Percent, 100F));
                     workflowPanel.RowStyles.Add(deletionVisible
-                        ? new RowStyle(SizeType.Percent, 38F)
+                        ? new RowStyle(SizeType.Percent, 40F)
                         : new RowStyle(SizeType.Absolute, 0F));
                     if (candidatesVisible)
                     {
                         workflowPanel.Controls.Add(candidatesGroup, 0, 0);
-                        candidatesGroup.MinimumSize = new Size(0, 260);
+                        candidatesGroup.MinimumSize = Size.Empty;
                     }
                     if (deletionVisible)
                     {
                         workflowPanel.Controls.Add(deletionGroup, 0, 1);
-                        deletionGroup.MinimumSize = new Size(0, 180);
+                        deletionGroup.MinimumSize = Size.Empty;
                     }
                     candidatesGroup.Visible = candidatesVisible;
                     deletionGroup.Visible = deletionVisible;
