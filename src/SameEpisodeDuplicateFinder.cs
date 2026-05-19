@@ -348,7 +348,7 @@ namespace SameEpisodeDuplicateFinder
             return new UiLayoutSettings
             {
                 DarkMode = true,
-                ShowSeriesCovers = true,
+                ShowSeriesCovers = false,
                 CandidatesPanelCollapsed = false,
                 DeletionPanelCollapsed = false,
                 MissingEpisodesPanelCollapsed = true,
@@ -1667,7 +1667,7 @@ namespace SameEpisodeDuplicateFinder
             activeSearchText = "";
             activeShellSection = "Duplicates";
             darkMode = uiSettings.DarkMode;
-            showSeriesCovers = uiSettings.ShowSeriesCovers;
+            showSeriesCovers = false;
             candidatesPanelCollapsed = uiSettings.CandidatesPanelCollapsed;
             deletionPanelCollapsed = uiSettings.DeletionPanelCollapsed;
             missingEpisodesPanelCollapsed = uiSettings.MissingEpisodesPanelCollapsed;
@@ -1726,9 +1726,10 @@ namespace SameEpisodeDuplicateFinder
             viewRestoreWorkspaceMenuItem.ToolTipText = "Show the default review panels again.";
             viewRestoreWorkspaceMenuItem.Click += RestoreWorkspaceMenuItem_Click;
             viewSeriesCoversMenuItem = new ToolStripMenuItem("Series Covers");
-            viewSeriesCoversMenuItem.ToolTipText = "Switch the series panel between text names and cover-art tiles.";
+            viewSeriesCoversMenuItem.ToolTipText = "Series rail cover tiles are disabled so selection stays fast. Covers load in the main workflow.";
             viewSeriesCoversMenuItem.CheckOnClick = true;
             viewSeriesCoversMenuItem.Checked = showSeriesCovers;
+            viewSeriesCoversMenuItem.Enabled = false;
             viewSeriesCoversMenuItem.Click += ToggleSeriesCoversMenuItem_Click;
             viewDarkModeMenuItem = new ToolStripMenuItem("Dark Mode");
             viewDarkModeMenuItem.ToolTipText = "Toggle the application between dark and light mode.";
@@ -2322,7 +2323,7 @@ namespace SameEpisodeDuplicateFinder
             shellInspectorTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
 
             inspectorPreviewLabel = new Label();
-            inspectorPreviewLabel.Text = "Episode Preview";
+            inspectorPreviewLabel.Text = "Artwork Preview";
             inspectorPreviewLabel.Dock = DockStyle.Fill;
             inspectorPreviewLabel.Font = new Font(Font.FontFamily, 9F, FontStyle.Bold);
             inspectorPreviewLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -2573,8 +2574,8 @@ namespace SameEpisodeDuplicateFinder
             shellDuplicateStatLabel = CreateShellStatLabel("Duplicates\r\n0 groups");
             shellMissingStatLabel = CreateShellStatLabel("Missing\r\n0 episodes");
             shellAniDbBadgeLabel = CreateProviderBadgeLabel("AniDB", "Ready");
-            shellTvDbBadgeLabel = CreateProviderBadgeLabel("TheTVDB", "Not Configured");
-            shellTmDbBadgeLabel = CreateProviderBadgeLabel("TMDB", "Not Configured");
+            shellTvDbBadgeLabel = CreateProviderBadgeLabel("TVDB", "Setup");
+            shellTmDbBadgeLabel = CreateProviderBadgeLabel("TMDB", "Setup");
 
             navLibraryButton = CreateNavButton("Library", "Show the scanned series selector.", ShellNavButton_Click);
             navDuplicatesButton = CreateNavButton("Duplicates", "Show duplicate candidates.", ShellNavButton_Click);
@@ -2661,6 +2662,7 @@ namespace SameEpisodeDuplicateFinder
 
             workflowPanel = new TableLayoutPanel();
             workflowPanel.Dock = DockStyle.Fill;
+            workflowPanel.AutoScroll = true;
             workflowPanel.ColumnCount = 1;
             workflowPanel.RowCount = 2;
             workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 68F));
@@ -2761,11 +2763,11 @@ namespace SameEpisodeDuplicateFinder
         private Label CreateProviderBadgeLabel(string provider, string status)
         {
             var label = new Label();
-            label.Text = provider + ": " + status;
+            label.Text = FormatProviderBadgeText(provider, status);
             label.Dock = DockStyle.Fill;
             label.AutoEllipsis = true;
-            label.TextAlign = ContentAlignment.MiddleLeft;
-            label.Padding = new Padding(8, 0, 8, 0);
+            label.TextAlign = ContentAlignment.MiddleCenter;
+            label.Padding = new Padding(4, 0, 4, 0);
             label.Margin = new Padding(0, 1, 0, 3);
             label.BorderStyle = BorderStyle.FixedSingle;
             return label;
@@ -3252,15 +3254,21 @@ namespace SameEpisodeDuplicateFinder
                     activityGroup.Text = "History / Alerts";
                     workflowPanel.RowCount = 2;
                     workflowPanel.RowStyles.Clear();
-                    workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, deletionVisible ? 68F : 100F));
-                    workflowPanel.RowStyles.Add(new RowStyle(SizeType.Percent, deletionVisible ? 32F : 0F));
+                    workflowPanel.RowStyles.Add(deletionVisible
+                        ? new RowStyle(SizeType.Percent, 62F)
+                        : new RowStyle(SizeType.Percent, 100F));
+                    workflowPanel.RowStyles.Add(deletionVisible
+                        ? new RowStyle(SizeType.Percent, 38F)
+                        : new RowStyle(SizeType.Absolute, 0F));
                     if (candidatesVisible)
                     {
                         workflowPanel.Controls.Add(candidatesGroup, 0, 0);
+                        candidatesGroup.MinimumSize = new Size(0, 260);
                     }
                     if (deletionVisible)
                     {
                         workflowPanel.Controls.Add(deletionGroup, 0, 1);
+                        deletionGroup.MinimumSize = new Size(0, 180);
                     }
                     candidatesGroup.Visible = candidatesVisible;
                     deletionGroup.Visible = deletionVisible;
@@ -4301,9 +4309,9 @@ namespace SameEpisodeDuplicateFinder
             shellScannedStatLabel.Text = string.Format("Scanned\r\n{0:N0} file(s)", seriesRows.Count);
             shellDuplicateStatLabel.Text = string.Format("Duplicates\r\n{0:N0} group(s), {1:N0} file(s)", EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows), duplicateRows.Count);
             shellMissingStatLabel.Text = string.Format("Missing\r\n{0:N0} episode(s)", missingRows.Sum(x => x.MissingCount));
-            UpdateProviderBadge(shellAniDbBadgeLabel, "AniDB", "HTTP Ready", true);
-            UpdateProviderBadge(shellTvDbBadgeLabel, "TheTVDB", TvDbSettingsStore.Load().HasApiKey ? "Connected" : "Not Configured", TvDbSettingsStore.Load().HasApiKey);
-            UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", TmDbSettingsStore.Load().HasReadAccessToken ? "Connected" : "Not Configured", TmDbSettingsStore.Load().HasReadAccessToken);
+            UpdateProviderBadge(shellAniDbBadgeLabel, "AniDB", "Ready", true);
+            UpdateProviderBadge(shellTvDbBadgeLabel, "TVDB", TvDbSettingsStore.Load().HasApiKey ? "Ready" : "Setup", TvDbSettingsStore.Load().HasApiKey);
+            UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", TmDbSettingsStore.Load().HasReadAccessToken ? "Ready" : "Setup", TmDbSettingsStore.Load().HasReadAccessToken);
 
             var coverRows = seriesRows.Count > 0 ? seriesRows : duplicateRows;
             var coverPath = FindSeriesCoverPath(coverRows);
@@ -4591,13 +4599,20 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
-            label.Text = provider + ": " + status;
+            label.Text = FormatProviderBadgeText(provider, status);
             label.BackColor = ok
                 ? (darkMode ? Color.FromArgb(27, 67, 50) : Color.FromArgb(220, 252, 231))
                 : (darkMode ? Color.FromArgb(77, 51, 31) : Color.FromArgb(255, 237, 213));
             label.ForeColor = ok
                 ? (darkMode ? Color.FromArgb(187, 247, 208) : Color.FromArgb(22, 101, 52))
                 : (darkMode ? Color.FromArgb(253, 230, 138) : Color.FromArgb(146, 64, 14));
+        }
+
+        private static string FormatProviderBadgeText(string provider, string status)
+        {
+            provider = provider ?? "";
+            status = status ?? "";
+            return string.IsNullOrWhiteSpace(status) ? provider.Trim() : (provider.Trim() + " " + status.Trim()).Trim();
         }
 
         private string GetFileFormatFilterSummary()
@@ -4826,7 +4841,7 @@ namespace SameEpisodeDuplicateFinder
                 allItem.SubItems.Add(FormatTotalSize(allRows));
                 allItem.Tag = AllSeriesTag;
                 seriesListView.Items.Add(allItem);
-                AddSeriesCoverItem("Duplicate Files", AllSeriesTag, allRows.Count, null);
+                AddSeriesCoverItem("Duplicate Files", AllSeriesTag, allRows.Count);
 
                 foreach (var group in seriesSource.GroupBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
                                                   .Where(g => string.IsNullOrWhiteSpace(activeSearchText) || ContainsSearch(g.Key, activeSearchText))
@@ -4857,7 +4872,7 @@ namespace SameEpisodeDuplicateFinder
                     }
                     seriesListView.Items.Add(seriesItem);
 
-                    AddSeriesCoverItem(group.Key, group.Key, files.Count, FindSeriesCoverPath(files));
+                    AddSeriesCoverItem(group.Key, group.Key, files.Count);
                 }
 
                 activeSeriesTag = AllSeriesTag;
@@ -5758,7 +5773,7 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
-        private void AddSeriesCoverItem(string title, object tag, int count, string coverPath)
+        private void AddSeriesCoverItem(string title, object tag, int count)
         {
             var imageKey = Convert.ToString(tag);
             if (string.IsNullOrWhiteSpace(imageKey))
@@ -5766,7 +5781,7 @@ namespace SameEpisodeDuplicateFinder
                 imageKey = title;
             }
 
-            seriesCoverImages.Images.Add(imageKey, CreateSeriesCoverImage(title, coverPath));
+            seriesCoverImages.Images.Add(imageKey, CreatePlaceholderCover(title, seriesCoverImages.ImageSize));
             var item = new ListViewItem(string.Format("{0}\r\n{1:N0}", title, count));
             item.Tag = tag;
             item.ImageKey = imageKey;
