@@ -1489,6 +1489,7 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label busyNoticeTitleLabel;
         private readonly Label busyNoticeStatusLabel;
         private readonly Button busyNoticeCancelButton;
+        private readonly System.Windows.Forms.Timer shellSeriesFetchDebounceTimer;
         private readonly System.Windows.Forms.Timer monitorTimer;
         private readonly Label scannedChipLabel;
         private readonly Label candidatesChipLabel;
@@ -1609,7 +1610,10 @@ namespace SameEpisodeDuplicateFinder
         private readonly object shellCoverFetchLock;
         private readonly HashSet<string> shellCoverFetchAttempted;
         private readonly HashSet<string> shellCoverFetchInProgress;
+        private readonly Dictionary<string, string> seriesCoverPathCache;
         private DateTime lastShellCoverFetchUtc;
+        private string pendingShellFetchTitle;
+        private List<EpisodeFile> pendingShellFetchRows;
         private DateTime nextMonitorCheckUtc;
         private TcpListener selectedFeedServer;
         private Thread selectedFeedServerThread;
@@ -1646,7 +1650,13 @@ namespace SameEpisodeDuplicateFinder
             shellCoverFetchLock = new object();
             shellCoverFetchAttempted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             shellCoverFetchInProgress = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            seriesCoverPathCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             lastShellCoverFetchUtc = DateTime.MinValue;
+            pendingShellFetchTitle = "";
+            pendingShellFetchRows = new List<EpisodeFile>();
+            shellSeriesFetchDebounceTimer = new System.Windows.Forms.Timer();
+            shellSeriesFetchDebounceTimer.Interval = 900;
+            shellSeriesFetchDebounceTimer.Tick += ShellSeriesFetchDebounceTimer_Tick;
             monitorTimer = new System.Windows.Forms.Timer();
             monitorTimer.Interval = 60000;
             monitorTimer.Tick += MonitorTimer_Tick;
@@ -4306,8 +4316,74 @@ namespace SameEpisodeDuplicateFinder
 
             if (string.IsNullOrWhiteSpace(coverPath) && !string.IsNullOrWhiteSpace(selectedTitle) && coverRows.Count > 0)
             {
-                QueueShellSeriesFetch(selectedTitle, coverRows);
+                ScheduleShellSeriesFetch(selectedTitle, coverRows);
             }
+            else
+            {
+                ClearPendingShellSeriesFetch();
+            }
+        }
+
+        private void ScheduleShellSeriesFetch(string title, List<EpisodeFile> seriesRows)
+        {
+            if (busyState || string.IsNullOrWhiteSpace(title) || seriesRows == null || seriesRows.Count == 0)
+            {
+                ClearPendingShellSeriesFetch();
+                return;
+            }
+
+            lock (shellCoverFetchLock)
+            {
+                if (shellCoverFetchAttempted.Contains(title) || shellCoverFetchInProgress.Contains(title))
+                {
+                    ClearPendingShellSeriesFetch();
+                    return;
+                }
+
+                if (shellCoverFetchInProgress.Count > 0)
+                {
+                    pendingShellFetchTitle = "";
+                    pendingShellFetchRows = new List<EpisodeFile>();
+                    AppendDiagnosticLog("COVER", title + ": selected-series cover fetch deferred because another provider request is still running.");
+                    return;
+                }
+            }
+
+            pendingShellFetchTitle = title.Trim();
+            pendingShellFetchRows = seriesRows.ToList();
+            shellSeriesFetchDebounceTimer.Stop();
+            shellSeriesFetchDebounceTimer.Start();
+            shellSeriesMetaLabel.Text = shellSeriesMetaLabel.Text + " | Cover: queued";
+        }
+
+        private void ClearPendingShellSeriesFetch()
+        {
+            if (shellSeriesFetchDebounceTimer != null)
+            {
+                shellSeriesFetchDebounceTimer.Stop();
+            }
+
+            pendingShellFetchTitle = "";
+            pendingShellFetchRows = new List<EpisodeFile>();
+        }
+
+        private void ShellSeriesFetchDebounceTimer_Tick(object sender, EventArgs e)
+        {
+            shellSeriesFetchDebounceTimer.Stop();
+            var title = pendingShellFetchTitle;
+            var rows = pendingShellFetchRows == null ? new List<EpisodeFile>() : pendingShellFetchRows.ToList();
+            pendingShellFetchTitle = "";
+            pendingShellFetchRows = new List<EpisodeFile>();
+
+            var selectedTitle = GetSelectedShellSeriesTitle(GetCurrentCandidateFile());
+            if (string.IsNullOrWhiteSpace(title) ||
+                rows.Count == 0 ||
+                !string.Equals(title, selectedTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            QueueShellSeriesFetch(title, rows);
         }
 
         private void QueueShellSeriesFetch(string title, List<EpisodeFile> seriesRows)
@@ -4322,6 +4398,11 @@ namespace SameEpisodeDuplicateFinder
             {
                 if (shellCoverFetchAttempted.Contains(key) || shellCoverFetchInProgress.Contains(key))
                 {
+                    return;
+                }
+                if (shellCoverFetchInProgress.Count > 0)
+                {
+                    AppendDiagnosticLog("COVER", key + ": selected-series cover fetch skipped because another provider request is still running.");
                     return;
                 }
 
@@ -4356,6 +4437,13 @@ namespace SameEpisodeDuplicateFinder
                 if (result == null)
                 {
                     UpdateShellSeriesHeader();
+                    return;
+                }
+
+                var currentTitle = GetSelectedShellSeriesTitle(GetCurrentCandidateFile());
+                if (!string.Equals(key, currentTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    UpdateActivity(result.Message + " | no longer selected", true);
                     return;
                 }
 
@@ -5760,6 +5848,18 @@ namespace SameEpisodeDuplicateFinder
 
         private string FindSeriesCoverPath(IEnumerable<EpisodeFile> files)
         {
+            var fileList = (files ?? Enumerable.Empty<EpisodeFile>()).Where(x => x != null).ToList();
+            var cacheTitle = fileList.Select(x => x.Title).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
+            var cacheRoot = GetPrimarySessionRoot() ?? "";
+            var cacheKey = cacheRoot + "|" + cacheTitle;
+            string cachedPath;
+            if (!string.IsNullOrWhiteSpace(cacheTitle) &&
+                seriesCoverPathCache.TryGetValue(cacheKey, out cachedPath) &&
+                File.Exists(cachedPath))
+            {
+                return cachedPath;
+            }
+
             var root = "";
             var primaryRoot = GetPrimarySessionRoot();
             if (!string.IsNullOrWhiteSpace(primaryRoot))
@@ -5774,7 +5874,7 @@ namespace SameEpisodeDuplicateFinder
                 }
             }
 
-            foreach (var file in files)
+            foreach (var file in fileList)
             {
                 var folder = GetExistingFolder(file);
                 var startingFolder = folder;
@@ -5783,6 +5883,10 @@ namespace SameEpisodeDuplicateFinder
                     var cover = FindCoverInFolder(folder, file.Title, PathsEqual(folder, startingFolder));
                     if (!string.IsNullOrWhiteSpace(cover))
                     {
+                        if (!string.IsNullOrWhiteSpace(cacheTitle))
+                        {
+                            seriesCoverPathCache[cacheKey] = cover;
+                        }
                         return cover;
                     }
 
