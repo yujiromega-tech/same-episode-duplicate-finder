@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.IO.Compression;
+using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -62,14 +63,27 @@ namespace SameEpisodeDuplicateFinder
                 foreach (Match titleMatch in Regex.Matches(animeMatch.Groups["body"].Value, @"<title(?<attrs>[^>]*)>(?<title>.*?)</title>", RegexOptions.Singleline | RegexOptions.IgnoreCase, XmlRegexTimeout))
                 {
                     var title = WebUtility.HtmlDecode(titleMatch.Groups["title"].Value.Trim());
+                    if (ShouldSkipTitleCandidateForQuery(queryTitle, title))
+                    {
+                        continue;
+                    }
+
                     var score = ScoreTitle(normalizedQuery, NormalizeTitle(title));
+                    if (score < 85 && IsSafeSeasonYearRepresentation(queryTitle, title))
+                    {
+                        score = 85;
+                    }
+
                     if (score <= 0)
                     {
                         continue;
                     }
 
+                    var titleType = ExtractXmlAttribute(titleMatch.Groups["attrs"].Value, "type");
                     AniDbTitleCandidate existing;
-                    if (!results.TryGetValue(aid, out existing) || score > existing.Score)
+                    if (!results.TryGetValue(aid, out existing) ||
+                        score > existing.Score ||
+                        (score == existing.Score && GetTitleTypeRank(titleType) > GetTitleTypeRank(existing.TitleType)))
                     {
                         results[aid] = new AniDbTitleCandidate
                         {
@@ -77,7 +91,7 @@ namespace SameEpisodeDuplicateFinder
                             QueryTitle = queryTitle,
                             AniDbId = aid,
                             Title = title,
-                            TitleType = ExtractXmlAttribute(titleMatch.Groups["attrs"].Value, "type"),
+                            TitleType = titleType,
                             Score = score,
                             TargetFolder = targetFolder
                         };
@@ -87,6 +101,7 @@ namespace SameEpisodeDuplicateFinder
 
             return results.Values
                           .OrderByDescending(x => x.Score)
+                          .ThenByDescending(x => GetTitleTypeRank(x.TitleType))
                           .ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
                           .Take(maxResults)
                           .ToList();
@@ -142,11 +157,68 @@ namespace SameEpisodeDuplicateFinder
 
         private static string NormalizeTitle(string title)
         {
-            title = (title ?? "").ToLowerInvariant();
+            title = RemoveDiacritics(title ?? "").ToLowerInvariant();
+            title = title.Replace("+", " plus ");
+            title = Regex.Replace(title, @"\bs\s*(\d{1,2})\b", "$1", RegexOptions.IgnoreCase);
             title = Regex.Replace(title, @"\[[^\]]+\]|\([^\)]*\)", " ");
+            title = Regex.Replace(title, @"\b(\d{1,2})(st|nd|rd|th)\b", "$1", RegexOptions.IgnoreCase);
             title = Regex.Replace(title, @"[^a-z0-9]+", " ");
+            title = NormalizeRomanizedJapanese(title);
             title = Regex.Replace(title, @"\b(the|a|an|tv|ova|movie|season|part)\b", " ");
             return Regex.Replace(title, @"\s+", " ").Trim();
+        }
+
+        private static string NormalizeRomanizedJapanese(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                return "";
+            }
+
+            var normalized = title;
+
+            normalized = Regex.Replace(normalized, @"\bwo\b", "o", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, @"\bha\b", "wa", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, @"\bhe\b", "e", RegexOptions.IgnoreCase);
+
+            normalized = Regex.Replace(normalized, "jyo", "zyo", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "jyu", "zyu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "jya", "zya", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "jo", "zyo", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "ju", "zyu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "ja", "zya", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "sho", "syo", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "shu", "syu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "sha", "sya", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "cho", "tyo", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "chu", "tyu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "cha", "tya", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "shi", "si", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "chi", "ti", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "tsu", "tu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "fu", "hu", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "ji", "zi", RegexOptions.IgnoreCase);
+
+            normalized = Regex.Replace(normalized, "ou", "o", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "oo", "o", RegexOptions.IgnoreCase);
+            normalized = Regex.Replace(normalized, "uu", "u", RegexOptions.IgnoreCase);
+
+            return normalized;
+        }
+
+        private static string RemoveDiacritics(string value)
+        {
+            var normalized = (value ?? "").Normalize(NormalizationForm.FormD);
+            var builder = new StringBuilder(normalized.Length);
+            foreach (var ch in normalized)
+            {
+                if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                {
+                    builder.Append(ch);
+                }
+            }
+
+            return builder.ToString().Normalize(NormalizationForm.FormC);
         }
 
         private static int ScoreTitle(string query, string candidate)
@@ -161,27 +233,158 @@ namespace SameEpisodeDuplicateFinder
                 return 100;
             }
 
-            if (candidate.Contains(query) || query.Contains(candidate))
+            if (string.Equals(RemoveTitleSpaces(query), RemoveTitleSpaces(candidate), StringComparison.OrdinalIgnoreCase))
+            {
+                return 100;
+            }
+
+            if ((candidate.Contains(query) && IsSafeContainedTitle(query)) ||
+                (query.Contains(candidate) && IsSafeContainedTitle(candidate)))
             {
                 return 85;
             }
 
-            var queryTokens = query.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var queryTokens = new HashSet<string>(query.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase);
             var candidateTokens = new HashSet<string>(candidate.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase);
-            if (queryTokens.Length == 0 || candidateTokens.Count == 0)
+            if (queryTokens.Count == 0 || candidateTokens.Count == 0)
             {
                 return 0;
             }
 
             var matches = queryTokens.Count(x => candidateTokens.Contains(x));
-            var score = (int)Math.Round((decimal)matches * 100M / Math.Max(queryTokens.Length, candidateTokens.Count));
+            var score = (int)Math.Round((decimal)matches * 100M / Math.Max(queryTokens.Count, candidateTokens.Count));
             return score >= 35 ? score : 0;
+        }
+
+        internal static int ScoreTitleForTest(string queryTitle, string candidateTitle)
+        {
+            return ScoreTitle(NormalizeTitle(queryTitle), NormalizeTitle(candidateTitle));
+        }
+
+        internal static bool IsSafeOfficialExpansionForTest(string queryTitle, string candidateTitle)
+        {
+            return IsSafeOfficialExpansion(queryTitle, candidateTitle);
+        }
+
+        internal static bool IsSafeSeasonYearRepresentationForTest(string queryTitle, string candidateTitle)
+        {
+            return IsSafeSeasonYearRepresentation(queryTitle, candidateTitle);
+        }
+
+        internal static bool ShouldSkipTitleCandidateForTest(string queryTitle, string candidateTitle)
+        {
+            return ShouldSkipTitleCandidateForQuery(queryTitle, candidateTitle);
+        }
+
+        internal static bool IsSafeOfficialExpansion(string queryTitle, string candidateTitle)
+        {
+            var normalizedQuery = NormalizeTitle(queryTitle);
+            var normalizedCandidate = NormalizeTitle(candidateTitle);
+            return IsSafeContainedTitle(normalizedQuery) &&
+                   normalizedCandidate.StartsWith(normalizedQuery + " ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsSafeSeasonYearRepresentation(string queryTitle, string candidateTitle)
+        {
+            if (!HasSeasonMarker(queryTitle) || !Regex.IsMatch(candidateTitle ?? "", @"\((19|20)\d{2}\)"))
+            {
+                return false;
+            }
+
+            var queryBase = StripSeasonMarker(queryTitle);
+            return !string.IsNullOrWhiteSpace(queryBase) &&
+                   string.Equals(NormalizeTitle(queryBase), NormalizeTitle(candidateTitle), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasSeasonMarker(string title)
+        {
+            return Regex.IsMatch(title ?? "", @"\b\d{1,2}(st|nd|rd|th)\s+season\b|\bseason\s+\d{1,2}\b|\bs\d{1,2}\b|\bpart\s+\d{1,2}\b", RegexOptions.IgnoreCase);
+        }
+
+        private static string StripSeasonMarker(string title)
+        {
+            var stripped = Regex.Replace(title ?? "", @"\b\d{1,2}(st|nd|rd|th)\s+season\b|\bseason\s+\d{1,2}\b|\bs\d{1,2}\b|\bpart\s+\d{1,2}\b", " ", RegexOptions.IgnoreCase);
+            return Regex.Replace(stripped, @"\s+", " ").Trim();
+        }
+
+        private static int GetTitleTypeRank(string titleType)
+        {
+            if (string.Equals(titleType, "main", StringComparison.OrdinalIgnoreCase))
+            {
+                return 4;
+            }
+            if (string.Equals(titleType, "official", StringComparison.OrdinalIgnoreCase))
+            {
+                return 3;
+            }
+            if (string.Equals(titleType, "syn", StringComparison.OrdinalIgnoreCase))
+            {
+                return 2;
+            }
+            if (string.Equals(titleType, "short", StringComparison.OrdinalIgnoreCase))
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+
+        private static string RemoveTitleSpaces(string title)
+        {
+            return Regex.Replace(title ?? "", @"\s+", "");
+        }
+
+
+        private static bool IsSafeContainedTitle(string normalizedTitle)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedTitle) || normalizedTitle.Length < 4)
+            {
+                return false;
+            }
+
+            return normalizedTitle.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length >= 2;
+        }
+
+        private static bool ShouldSkipTitleCandidateForQuery(string queryTitle, string candidateTitle)
+        {
+            if (string.IsNullOrWhiteSpace(queryTitle) || string.IsNullOrWhiteSpace(candidateTitle))
+            {
+                return false;
+            }
+
+            if (!HasLatinLetter(queryTitle))
+            {
+                return false;
+            }
+
+            if (!HasLatinLetter(candidateTitle) && HasNonLatinLetter(candidateTitle))
+            {
+                return true;
+            }
+
+            if (!HasLatinLetter(candidateTitle))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasLatinLetter(string value)
+        {
+            return Regex.IsMatch(value ?? "", @"[A-Za-z]");
+        }
+
+        private static bool HasNonLatinLetter(string value)
+        {
+            return Regex.IsMatch(value ?? "", @"\p{L}") && !Regex.IsMatch(value ?? "", @"[A-Za-z]");
         }
     }
 
     internal sealed class CachedParsedFile
     {
         public long SizeBytes { get; set; }
+        public long CreatedUtcTicks { get; set; }
         public long LastWriteUtcTicks { get; set; }
         public EpisodeFile File { get; set; }
     }
@@ -336,7 +539,6 @@ namespace SameEpisodeDuplicateFinder
     internal sealed class UiLayoutSettings
     {
         public bool DarkMode { get; set; }
-        public bool ShowSeriesCovers { get; set; }
         public bool CandidatesPanelCollapsed { get; set; }
         public bool DeletionPanelCollapsed { get; set; }
         public bool MissingEpisodesPanelCollapsed { get; set; }
@@ -348,7 +550,6 @@ namespace SameEpisodeDuplicateFinder
             return new UiLayoutSettings
             {
                 DarkMode = true,
-                ShowSeriesCovers = false,
                 CandidatesPanelCollapsed = false,
                 DeletionPanelCollapsed = false,
                 MissingEpisodesPanelCollapsed = true,
@@ -410,7 +611,6 @@ namespace SameEpisodeDuplicateFinder
             using (var writer = new StreamWriter(SettingsPath, false, new UTF8Encoding(false)))
             {
                 writer.WriteLine("DarkMode=" + settings.DarkMode);
-                writer.WriteLine("ShowSeriesCovers=" + settings.ShowSeriesCovers);
                 writer.WriteLine("CandidatesPanelCollapsed=" + settings.CandidatesPanelCollapsed);
                 writer.WriteLine("DeletionPanelCollapsed=" + settings.DeletionPanelCollapsed);
                 writer.WriteLine("MissingEpisodesPanelCollapsed=" + settings.MissingEpisodesPanelCollapsed);
@@ -424,10 +624,6 @@ namespace SameEpisodeDuplicateFinder
             if (string.Equals(key, "DarkMode", StringComparison.OrdinalIgnoreCase))
             {
                 settings.DarkMode = value;
-            }
-            else if (string.Equals(key, "ShowSeriesCovers", StringComparison.OrdinalIgnoreCase))
-            {
-                settings.ShowSeriesCovers = value;
             }
             else if (string.Equals(key, "CandidatesPanelCollapsed", StringComparison.OrdinalIgnoreCase))
             {
@@ -560,6 +756,7 @@ namespace SameEpisodeDuplicateFinder
                                 Name = name,
                                 BaseName = Path.GetFileNameWithoutExtension(name),
                                 Length = size,
+                                CreatedUtcTicks = ToDateTimeUtcTicks(data.ftCreationTime),
                                 LastWriteUtcTicks = ToDateTimeUtcTicks(data.ftLastWriteTime)
                             };
                         }
@@ -1442,7 +1639,7 @@ namespace SameEpisodeDuplicateFinder
     internal sealed class MainForm : Form
     {
         private const string AllSeriesTag = "__ALL_SERIES__";
-        private const int MinimumAutomaticAniDbMatchScore = 85;
+        private static readonly Size SeriesArtworkImageSize = new Size(112, 160);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool DestroyIcon(IntPtr hIcon);
@@ -1463,7 +1660,6 @@ namespace SameEpisodeDuplicateFinder
         private readonly ToolStripMenuItem viewEpisodeSearchMenuItem;
         private readonly ToolStripMenuItem viewSelectedFeedMenuItem;
         private readonly ToolStripMenuItem viewRestoreWorkspaceMenuItem;
-        private readonly ToolStripMenuItem viewSeriesCoversMenuItem;
         private readonly ToolStripMenuItem viewDarkModeMenuItem;
         private readonly ToolStripMenuItem toolsClearMarksMenuItem;
         private readonly ToolStripMenuItem toolsAniDbMenuItem;
@@ -1502,8 +1698,6 @@ namespace SameEpisodeDuplicateFinder
         private readonly Label providerChipLabel;
         private readonly TabControl reviewTabs;
         private readonly ListView seriesListView;
-        private readonly ListView seriesCoverView;
-        private readonly ImageList seriesCoverImages;
         private readonly DataGridView grid;
         private readonly DataGridView deletionGrid;
         private readonly DataGridView missingEpisodesGrid;
@@ -1548,6 +1742,8 @@ namespace SameEpisodeDuplicateFinder
         private readonly Button inspectorKeepButton;
         private readonly Button inspectorDeleteButton;
         private readonly Button inspectorIgnoreButton;
+        private readonly Button inspectorRemoveArtworkButton;
+        private readonly Button inspectorFetchArtworkButton;
         private readonly Button inspectorOpenFolderButton;
         private readonly Button navLibraryButton;
         private readonly Button navDuplicatesButton;
@@ -1599,7 +1795,6 @@ namespace SameEpisodeDuplicateFinder
         private string activeSearchText;
         private bool busyState;
         private volatile bool cancelRequested;
-        private bool showSeriesCovers;
         private bool darkMode;
         private bool candidatesPanelCollapsed;
         private bool deletionPanelCollapsed;
@@ -1608,6 +1803,7 @@ namespace SameEpisodeDuplicateFinder
         private bool selectedFeedPanelCollapsed;
         private string activeShellSection;
         private bool restoringColumnLayout;
+        private bool suppressDashboardRefresh;
         private readonly object shellCoverFetchLock;
         private readonly HashSet<string> shellCoverFetchAttempted;
         private readonly HashSet<string> shellCoverFetchInProgress;
@@ -1668,7 +1864,6 @@ namespace SameEpisodeDuplicateFinder
             activeSearchText = "";
             activeShellSection = "Duplicates";
             darkMode = uiSettings.DarkMode;
-            showSeriesCovers = false;
             candidatesPanelCollapsed = uiSettings.CandidatesPanelCollapsed;
             deletionPanelCollapsed = uiSettings.DeletionPanelCollapsed;
             missingEpisodesPanelCollapsed = uiSettings.MissingEpisodesPanelCollapsed;
@@ -1726,12 +1921,6 @@ namespace SameEpisodeDuplicateFinder
             viewRestoreWorkspaceMenuItem = new ToolStripMenuItem("Restore Workspace");
             viewRestoreWorkspaceMenuItem.ToolTipText = "Show the default review panels again.";
             viewRestoreWorkspaceMenuItem.Click += RestoreWorkspaceMenuItem_Click;
-            viewSeriesCoversMenuItem = new ToolStripMenuItem("Series Covers");
-            viewSeriesCoversMenuItem.ToolTipText = "Series rail cover tiles are disabled so selection stays fast. Covers load in the main workflow.";
-            viewSeriesCoversMenuItem.CheckOnClick = true;
-            viewSeriesCoversMenuItem.Checked = showSeriesCovers;
-            viewSeriesCoversMenuItem.Enabled = false;
-            viewSeriesCoversMenuItem.Click += ToggleSeriesCoversMenuItem_Click;
             viewDarkModeMenuItem = new ToolStripMenuItem("Dark Mode");
             viewDarkModeMenuItem.ToolTipText = "Toggle the application between dark and light mode.";
             viewDarkModeMenuItem.CheckOnClick = true;
@@ -1744,7 +1933,6 @@ namespace SameEpisodeDuplicateFinder
             viewMenu.DropDownItems.Add(viewEpisodeSearchMenuItem);
             viewMenu.DropDownItems.Add(viewSelectedFeedMenuItem);
             viewMenu.DropDownItems.Add(viewRestoreWorkspaceMenuItem);
-            viewMenu.DropDownItems.Add(viewSeriesCoversMenuItem);
             viewMenu.DropDownItems.Add(new ToolStripSeparator());
             viewMenu.DropDownItems.Add(viewDarkModeMenuItem);
             
@@ -1993,25 +2181,8 @@ namespace SameEpisodeDuplicateFinder
             seriesListView.HeaderStyle = ColumnHeaderStyle.Nonclickable;
             seriesListView.ShowItemToolTips = true;
             seriesListView.Columns.Add("Series", 240);
-            seriesListView.Columns.Add("Files", 210);
-            seriesListView.Columns.Add("Size", 72);
             seriesListView.ItemSelectionChanged += SeriesListView_ItemSelectionChanged;
-
-            seriesCoverImages = new ImageList();
-            seriesCoverImages.ColorDepth = ColorDepth.Depth32Bit;
-            seriesCoverImages.ImageSize = new Size(112, 160);
-
-            seriesCoverView = new ListView();
-            seriesCoverView.Dock = DockStyle.Fill;
-            seriesCoverView.View = View.LargeIcon;
-            seriesCoverView.LargeImageList = seriesCoverImages;
-            seriesCoverView.HideSelection = false;
-            seriesCoverView.MultiSelect = false;
-            seriesCoverView.BorderStyle = BorderStyle.None;
-            seriesCoverView.Alignment = ListViewAlignment.Top;
-            seriesCoverView.LabelWrap = true;
-            seriesCoverView.Activation = ItemActivation.OneClick;
-            seriesCoverView.ItemSelectionChanged += SeriesCoverView_ItemSelectionChanged;
+            seriesListView.Resize += delegate { UpdateSeriesListColumnWidth(); };
 
             grid = new DataGridView();
             grid.Dock = DockStyle.Fill;
@@ -2358,6 +2529,18 @@ namespace SameEpisodeDuplicateFinder
             inspectorIgnoreButton.Click += InspectorIgnoreButton_Click;
             StyleButton(inspectorIgnoreButton, false);
 
+            inspectorRemoveArtworkButton = new Button();
+            inspectorRemoveArtworkButton.Text = "Remove Artwork";
+            inspectorRemoveArtworkButton.Dock = DockStyle.Fill;
+            inspectorRemoveArtworkButton.Click += InspectorRemoveArtworkButton_Click;
+            StyleButton(inspectorRemoveArtworkButton, false);
+
+            inspectorFetchArtworkButton = new Button();
+            inspectorFetchArtworkButton.Text = "Fetch Artwork";
+            inspectorFetchArtworkButton.Dock = DockStyle.Fill;
+            inspectorFetchArtworkButton.Click += InspectorFetchArtworkButton_Click;
+            StyleButton(inspectorFetchArtworkButton, false);
+
             inspectorOpenFolderButton = new Button();
             inspectorOpenFolderButton.Text = "Open File Location";
             inspectorOpenFolderButton.Dock = DockStyle.Fill;
@@ -2391,14 +2574,11 @@ namespace SameEpisodeDuplicateFinder
             var seriesViewPanel = new Panel();
             seriesViewPanel.Dock = DockStyle.Fill;
             seriesViewPanel.Controls.Add(seriesListView);
-            seriesViewPanel.Controls.Add(seriesCoverView);
 
             seriesPanel.Controls.Add(seriesSearchPanel, 0, 0);
             seriesPanel.Controls.Add(seriesViewPanel, 0, 1);
             seriesGroup.Controls.Add(seriesPanel);
             StyleSeriesListView();
-            StyleSeriesCoverView();
-            UpdateSeriesPanelMode();
 
             candidatesGroup = CreateSectionGroup("Candidates", new Padding(8));
 
@@ -2560,9 +2740,10 @@ namespace SameEpisodeDuplicateFinder
             shellSeriesTitleLabel = new Label();
             shellSeriesTitleLabel.Text = "No series selected";
             shellSeriesTitleLabel.Dock = DockStyle.Fill;
-            shellSeriesTitleLabel.Font = new Font(Font.FontFamily, 18F, FontStyle.Bold);
-            shellSeriesTitleLabel.TextAlign = ContentAlignment.BottomLeft;
-            shellSeriesTitleLabel.AutoEllipsis = true;
+            shellSeriesTitleLabel.Font = new Font(Font.FontFamily, 14F, FontStyle.Bold);
+            shellSeriesTitleLabel.TextAlign = ContentAlignment.MiddleLeft;
+            shellSeriesTitleLabel.AutoEllipsis = false;
+            shellSeriesTitleLabel.AutoSize = false;
 
             shellSeriesMetaLabel = new Label();
             shellSeriesMetaLabel.Text = "Scan one or more folders to populate the workspace.";
@@ -2636,9 +2817,9 @@ namespace SameEpisodeDuplicateFinder
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22F));
             seriesHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33F));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
-            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 84));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+            seriesHeader.RowStyles.Add(new RowStyle(SizeType.Absolute, 102));
             seriesHeader.Controls.Add(shellSeriesCoverBox, 0, 0);
             seriesHeader.SetRowSpan(shellSeriesCoverBox, 3);
             seriesHeader.Controls.Add(shellSeriesTitleLabel, 1, 0);
@@ -2651,6 +2832,7 @@ namespace SameEpisodeDuplicateFinder
 
             var providerPanel = new TableLayoutPanel();
             providerPanel.Dock = DockStyle.Fill;
+            providerPanel.Margin = new Padding(0, 6, 0, 6);
             providerPanel.ColumnCount = 1;
             providerPanel.RowCount = 3;
             providerPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
@@ -2673,8 +2855,8 @@ namespace SameEpisodeDuplicateFinder
             duplicateWorkflowSplit.Dock = DockStyle.Fill;
             duplicateWorkflowSplit.Orientation = Orientation.Horizontal;
             duplicateWorkflowSplit.SplitterWidth = 7;
-            duplicateWorkflowSplit.Panel1MinSize = 220;
-            duplicateWorkflowSplit.Panel2MinSize = 180;
+            duplicateWorkflowSplit.Panel1MinSize = 80;
+            duplicateWorkflowSplit.Panel2MinSize = 80;
             duplicateWorkflowSplit.FixedPanel = FixedPanel.None;
             duplicateWorkflowSplit.Panel1.Controls.Add(candidatesGroup);
             duplicateWorkflowSplit.Panel2.Controls.Add(deletionGroup);
@@ -2687,27 +2869,30 @@ namespace SameEpisodeDuplicateFinder
             mainContentPanel.Tag = "Section";
             mainContentPanel.ColumnCount = 1;
             mainContentPanel.RowCount = 2;
-            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 200));
+            mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 220));
             mainContentPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
             mainContentPanel.Controls.Add(seriesHeader, 0, 0);
             mainContentPanel.Controls.Add(workflowPanel, 0, 1);
 
             var inspectorPanel = new TableLayoutPanel();
             inspectorPanel.Dock = DockStyle.Fill;
+            inspectorPanel.AutoScroll = true;
             inspectorPanel.Padding = new Padding(10, 8, 10, 8);
             inspectorPanel.Tag = "Inspector";
             inspectorPanel.ColumnCount = 1;
-            inspectorPanel.RowCount = 10;
+            inspectorPanel.RowCount = 12;
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 118));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 128));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
             inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 24));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
+            inspectorPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
             inspectorPanel.Controls.Add(shellInspectorTitleLabel, 0, 0);
             inspectorPanel.Controls.Add(detailsGroup, 0, 1);
             inspectorPanel.Controls.Add(metadataGroup, 0, 2);
@@ -2717,7 +2902,9 @@ namespace SameEpisodeDuplicateFinder
             inspectorPanel.Controls.Add(inspectorKeepButton, 0, 6);
             inspectorPanel.Controls.Add(inspectorDeleteButton, 0, 7);
             inspectorPanel.Controls.Add(inspectorIgnoreButton, 0, 8);
-            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 9);
+            inspectorPanel.Controls.Add(inspectorRemoveArtworkButton, 0, 9);
+            inspectorPanel.Controls.Add(inspectorFetchArtworkButton, 0, 10);
+            inspectorPanel.Controls.Add(inspectorOpenFolderButton, 0, 11);
 
             workspacePanel = new TableLayoutPanel();
             workspacePanel.Dock = DockStyle.Fill;
@@ -3127,17 +3314,17 @@ namespace SameEpisodeDuplicateFinder
 
             seriesListView.BackColor = PanelBackColor;
             seriesListView.ForeColor = PrimaryTextColor;
+            UpdateSeriesListColumnWidth();
         }
 
-        private void StyleSeriesCoverView()
+        private void UpdateSeriesListColumnWidth()
         {
-            if (seriesCoverView == null)
+            if (seriesListView == null || seriesListView.Columns.Count == 0)
             {
                 return;
             }
 
-            seriesCoverView.BackColor = PanelBackColor;
-            seriesCoverView.ForeColor = PrimaryTextColor;
+            seriesListView.Columns[0].Width = Math.Max(120, seriesListView.ClientSize.Width - 4);
         }
 
         private void StyleGroupBox(GroupBox groupBox)
@@ -3315,13 +3502,28 @@ namespace SameEpisodeDuplicateFinder
             var minimumTop = duplicateWorkflowSplit.Panel1MinSize;
             var minimumBottom = duplicateWorkflowSplit.Panel2MinSize;
             var available = height - duplicateWorkflowSplit.SplitterWidth;
-            if (available <= minimumTop + minimumBottom)
+            if (available <= 0)
             {
-                duplicateWorkflowSplit.Panel1MinSize = Math.Max(120, available / 2);
-                duplicateWorkflowSplit.Panel2MinSize = Math.Max(120, available - duplicateWorkflowSplit.Panel1MinSize);
                 return;
             }
 
+            if (available <= 400)
+            {
+                var compactMinimum = Math.Max(40, Math.Min(80, available / 3));
+                duplicateWorkflowSplit.Panel1MinSize = compactMinimum;
+                duplicateWorkflowSplit.Panel2MinSize = compactMinimum;
+                var compactTarget = Math.Max(compactMinimum, Math.Min(available - compactMinimum, available / 2));
+                if (compactTarget > 0)
+                {
+                    duplicateWorkflowSplit.SplitterDistance = compactTarget;
+                }
+                return;
+            }
+
+            duplicateWorkflowSplit.Panel1MinSize = 220;
+            duplicateWorkflowSplit.Panel2MinSize = 180;
+            minimumTop = duplicateWorkflowSplit.Panel1MinSize;
+            minimumBottom = duplicateWorkflowSplit.Panel2MinSize;
             var target = Math.Max(minimumTop, Math.Min(available - minimumBottom, (int)(available * 0.56)));
             if (Math.Abs(duplicateWorkflowSplit.SplitterDistance - target) > 8)
             {
@@ -3364,32 +3566,6 @@ namespace SameEpisodeDuplicateFinder
             ApplyTheme();
         }
 
-        private void ToggleSeriesCoversMenuItem_Click(object sender, EventArgs e)
-        {
-            showSeriesCovers = viewSeriesCoversMenuItem.Checked;
-            UpdateSeriesPanelMode();
-            PopulateSeriesPanel();
-        }
-
-        private void UpdateSeriesPanelMode()
-        {
-            if (seriesListView == null || seriesCoverView == null)
-            {
-                return;
-            }
-
-            seriesCoverView.Visible = showSeriesCovers;
-            seriesListView.Visible = !showSeriesCovers;
-            if (showSeriesCovers)
-            {
-                seriesCoverView.BringToFront();
-            }
-            else
-            {
-                seriesListView.BringToFront();
-            }
-        }
-
         private void ApplyTheme()
         {
             BackColor = AppBackColor;
@@ -3405,7 +3581,6 @@ namespace SameEpisodeDuplicateFinder
             StyleGrid(episodeSearchGrid);
             StyleGrid(selectedFeedGrid);
             StyleSeriesListView();
-            StyleSeriesCoverView();
             candidateContextMenu.BackColor = PanelBackColor;
             candidateContextMenu.ForeColor = PrimaryTextColor;
             foreach (ToolStripItem item in candidateContextMenu.Items)
@@ -3716,7 +3891,6 @@ namespace SameEpisodeDuplicateFinder
                 UiLayoutSettingsStore.Save(new UiLayoutSettings
                 {
                     DarkMode = darkMode,
-                    ShowSeriesCovers = showSeriesCovers,
                     CandidatesPanelCollapsed = candidatesPanelCollapsed,
                     DeletionPanelCollapsed = deletionPanelCollapsed,
                     MissingEpisodesPanelCollapsed = missingEpisodesPanelCollapsed,
@@ -4005,8 +4179,8 @@ namespace SameEpisodeDuplicateFinder
             allScannedRows.AddRange(MergeScannedRowsWithDuplicates(scannedData, allRows));
             ComputeReviewRecommendations(false);
             ShowRows(allRows);
-            PopulateSeriesPanel();
             PopulateMissingEpisodesPanel();
+            PopulateSeriesPanel();
             UpdateCandidateTotal();
             RefreshDeletionRows();
             UpdateDashboard();
@@ -4029,6 +4203,7 @@ namespace SameEpisodeDuplicateFinder
                 EpisodeFile duplicate;
                 if (!string.IsNullOrWhiteSpace(row.Path) && duplicateByPath.TryGetValue(row.Path, out duplicate))
                 {
+                    duplicate.CreatedUtcTicks = row.CreatedUtcTicks;
                     duplicate.LastWriteUtcTicks = row.LastWriteUtcTicks;
                     merged.Add(duplicate);
                 }
@@ -4183,7 +4358,10 @@ namespace SameEpisodeDuplicateFinder
             candidateTotalLabel.Text = rows.Count == 0
                 ? "No duplicate candidates in the current view."
                 : string.Format("{0:N0} candidate file(s) | {1}", rows.Count, FormatByteSize(totalBytes));
-            UpdateDashboard();
+            if (!suppressDashboardRefresh)
+            {
+                UpdateDashboard();
+            }
         }
 
         private void RefreshDeletionRows()
@@ -4209,7 +4387,10 @@ namespace SameEpisodeDuplicateFinder
             deletionTotalLabel.Text = deletionRows.Count == 0
                 ? "No files marked for removal."
                 : string.Format("{0:N0} file(s) ready | {1}", deletionRows.Count, FormatByteSize(totalBytes));
-            UpdateDashboard();
+            if (!suppressDashboardRefresh)
+            {
+                UpdateDashboard();
+            }
         }
 
         private void RefreshVisibleRows()
@@ -4299,6 +4480,11 @@ namespace SameEpisodeDuplicateFinder
 
         private void UpdateDashboard()
         {
+            if (suppressDashboardRefresh)
+            {
+                return;
+            }
+
             if (scannedChipLabel == null)
             {
                 return;
@@ -4336,6 +4522,7 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            var sw = Stopwatch.StartNew();
             var selectedFile = GetCurrentCandidateFile();
             var selectedTitle = GetSelectedShellSeriesTitle(selectedFile);
             var seriesRows = GetShellSeriesRows(selectedTitle, selectedFile);
@@ -4348,20 +4535,21 @@ namespace SameEpisodeDuplicateFinder
                 : missingEpisodeRows.Where(x => string.Equals(x.Title, selectedTitle, StringComparison.OrdinalIgnoreCase)).ToList();
 
             shellSeriesTitleLabel.Text = displayTitle;
-            shellSeriesMetaLabel.Text = string.Format(
-                "{0:N0} scanned file(s) | {1:N0} duplicate group(s) | {2}",
-                seriesRows.Count,
-                EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows),
-                GetProviderStatusSummary());
+            toolTip.SetToolTip(shellSeriesTitleLabel, displayTitle);
+            shellSeriesMetaLabel.Text = "";
             shellScannedStatLabel.Text = string.Format("Scanned\r\n{0:N0} file(s)", seriesRows.Count);
             shellDuplicateStatLabel.Text = string.Format("Duplicates\r\n{0:N0} group(s), {1:N0} file(s)", EpisodeParser.CountDuplicateEpisodeGroups(duplicateRows), duplicateRows.Count);
             shellMissingStatLabel.Text = string.Format("Missing\r\n{0:N0} episode(s)", missingRows.Sum(x => x.MissingCount));
+            var tvDbReady = TvDbSettingsStore.Load().HasApiKey;
+            var tmDbReady = TmDbSettingsStore.Load().HasReadAccessToken;
             UpdateProviderBadge(shellAniDbBadgeLabel, "AniDB", "Ready", true);
-            UpdateProviderBadge(shellTvDbBadgeLabel, "TVDB", TvDbSettingsStore.Load().HasApiKey ? "Ready" : "Setup", TvDbSettingsStore.Load().HasApiKey);
-            UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", TmDbSettingsStore.Load().HasReadAccessToken ? "Ready" : "Setup", TmDbSettingsStore.Load().HasReadAccessToken);
+            UpdateProviderBadge(shellTvDbBadgeLabel, "TVDB", tvDbReady ? "Ready" : "Setup", tvDbReady);
+            UpdateProviderBadge(shellTmDbBadgeLabel, "TMDB", tmDbReady ? "Ready" : "Setup", tmDbReady);
 
             var coverRows = seriesRows.Count > 0 ? seriesRows : duplicateRows;
+            var coverSw = Stopwatch.StartNew();
             var coverPath = FindSeriesCoverPath(coverRows);
+            AppendSlowDiagnostic("UI", "FindSeriesCoverPath for " + displayTitle, coverSw.ElapsedMilliseconds, 500);
             var oldImage = shellSeriesCoverBox.Image;
             shellSeriesCoverBox.Image = CreateSeriesCoverImage(displayTitle, coverPath);
             if (oldImage != null)
@@ -4377,20 +4565,34 @@ namespace SameEpisodeDuplicateFinder
             {
                 ClearPendingShellSeriesFetch();
             }
+
+            AppendSlowDiagnostic("UI", "UpdateShellSeriesHeader for " + displayTitle, sw.ElapsedMilliseconds, 500);
         }
 
         private void ScheduleShellSeriesFetch(string title, List<EpisodeFile> seriesRows)
         {
             if (busyState || string.IsNullOrWhiteSpace(title) || seriesRows == null || seriesRows.Count == 0)
             {
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    AppendDiagnosticLog("COVER", title + ": selected-series cover fetch not queued because the app is busy or no series files were available.");
+                }
                 ClearPendingShellSeriesFetch();
                 return;
             }
 
             lock (shellCoverFetchLock)
             {
-                if (shellCoverFetchAttempted.Contains(title) || shellCoverFetchInProgress.Contains(title))
+                if (shellCoverFetchInProgress.Contains(title))
                 {
+                    AppendDiagnosticLog("COVER", title + ": selected-series cover fetch is already running.");
+                    ClearPendingShellSeriesFetch();
+                    return;
+                }
+
+                if (shellCoverFetchAttempted.Contains(title))
+                {
+                    AppendDiagnosticLog("COVER", title + ": selected-series cover fetch skipped because this series was already attempted in this app session. Use Fetch Artwork to retry.");
                     ClearPendingShellSeriesFetch();
                     return;
                 }
@@ -4408,7 +4610,6 @@ namespace SameEpisodeDuplicateFinder
             pendingShellFetchRows = seriesRows.ToList();
             shellSeriesFetchDebounceTimer.Stop();
             shellSeriesFetchDebounceTimer.Start();
-            shellSeriesMetaLabel.Text = shellSeriesMetaLabel.Text + " | Cover: queued";
         }
 
         private void ClearPendingShellSeriesFetch()
@@ -4465,7 +4666,6 @@ namespace SameEpisodeDuplicateFinder
                 shellCoverFetchInProgress.Add(key);
             }
 
-            shellSeriesMetaLabel.Text = shellSeriesMetaLabel.Text + " | Cover: checking";
             UpdateActivity("Queued selected-series metadata and cover fetch: " + title, true);
 
             var fetchRows = seriesRows.ToList();
@@ -4507,7 +4707,7 @@ namespace SameEpisodeDuplicateFinder
                     ApplyAniDbMatches(new Dictionary<string, AniDbAnimeResult>(StringComparer.OrdinalIgnoreCase)
                     {
                         { key, result.MetadataMatch }
-                    });
+                    }, false, false);
                 }
 
                 UpdateShellSeriesHeader();
@@ -4542,27 +4742,64 @@ namespace SameEpisodeDuplicateFinder
                 else
                 {
                     var targetPath = GetSeriesCoverTargetPath(title, targetFolder);
+                    var coverErrors = new List<string>();
                     var match = result.MetadataMatch != null && result.MetadataMatch.Found
                         ? result.MetadataMatch
                         : GetAniDbMatchForCover(title, seriesRows);
                     if (match != null && match.Found && string.IsNullOrWhiteSpace(match.PictureFile))
                     {
                         AppendDiagnosticLog("COVER", title + ": downloading AniDB picture for match " + match.Title + " (score " + match.Score.ToString("N0") + ")");
-                        match.PictureFile = AniDbClient.GetAnimePictureFile(match.AniDbId);
+                        try
+                        {
+                            match.PictureFile = AniDbClient.GetAnimePictureFile(match.AniDbId);
+                        }
+                        catch (Exception ex)
+                        {
+                            coverErrors.Add("AniDB picture lookup: " + ex.Message);
+                            AppendDiagnosticLog("COVER", title + ": AniDB picture lookup failed: " + ex.Message);
+                        }
+                    }
+
+                    if (match != null && match.Found && !IsAniDbCoverMatchSafe(title, match))
+                    {
+                        coverErrors.Add("AniDB cover rejected: " + DisplayOrDash(match.Title) + " did not safely match " + title);
+                        AppendDiagnosticLog("COVER", title + ": rejected AniDB cover from " + DisplayOrDash(match.Title) + " (score " + match.Score.ToString("N0") + ").");
+                        match = null;
                     }
 
                     if (match != null && match.Found && !string.IsNullOrWhiteSpace(match.PictureFile))
                     {
-                        AppendDiagnosticLog("COVER", title + ": saving AniDB cover from " + match.Title + " (score " + match.Score.ToString("N0") + ")");
-                        DownloadAniDbPicture(match.PictureFile, targetPath);
-                        result.CoverSaved = true;
-                        result.CoverMessage = "saved AniDB cover as " + Path.GetFileName(targetPath);
+                        try
+                        {
+                            AppendDiagnosticLog("COVER", title + ": saving AniDB cover from " + match.Title + " (score " + match.Score.ToString("N0") + ")");
+                            DownloadAniDbPicture(match.PictureFile, targetPath);
+                            CacheSeriesCoverPath(title, targetPath);
+                            result.CoverSaved = true;
+                            result.CoverMessage = "saved AniDB cover as " + Path.GetFileName(targetPath);
+                        }
+                        catch (Exception ex)
+                        {
+                            coverErrors.Add("AniDB cover download: " + ex.Message);
+                            AppendDiagnosticLog("COVER", title + ": AniDB cover download failed: " + ex.Message);
+                        }
                     }
-                    else
+
+                    if (!result.CoverSaved)
                     {
                         string fallbackMessage;
                         result.CoverSaved = TryDownloadFallbackCover(title, targetPath, out fallbackMessage);
-                        result.CoverMessage = result.CoverSaved ? fallbackMessage : DisplayOrDash(fallbackMessage);
+                        if (result.CoverSaved)
+                        {
+                            CacheSeriesCoverPath(title, targetPath);
+                        }
+                        else if (coverErrors.Count > 0 && !string.IsNullOrWhiteSpace(fallbackMessage))
+                        {
+                            coverErrors.Add(fallbackMessage);
+                        }
+
+                        result.CoverMessage = result.CoverSaved
+                            ? fallbackMessage
+                            : (coverErrors.Count == 0 ? DisplayOrDash(fallbackMessage) : string.Join(" | ", coverErrors));
                     }
                 }
             }
@@ -4838,6 +5075,14 @@ namespace SameEpisodeDuplicateFinder
             }
         }
 
+        private static void AppendSlowDiagnostic(string category, string operation, long elapsedMilliseconds, long thresholdMilliseconds)
+        {
+            if (elapsedMilliseconds >= thresholdMilliseconds)
+            {
+                AppendDiagnosticLog(category, operation + " took " + elapsedMilliseconds.ToString("N0") + " ms.");
+            }
+        }
+
         private static string ScrubDiagnosticText(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -4874,13 +5119,11 @@ namespace SameEpisodeDuplicateFinder
 
         private void PopulateSeriesPanel()
         {
+            var preserveTag = activeSeriesTag ?? AllSeriesTag;
             seriesListView.BeginUpdate();
-            seriesCoverView.BeginUpdate();
             try
             {
                 seriesListView.Items.Clear();
-                seriesCoverView.Items.Clear();
-                seriesCoverImages.Images.Clear();
 
                 var seriesSource = GetSeriesSourceRows().ToList();
                 var allItem = new ListViewItem("All duplicate candidates");
@@ -4888,7 +5131,10 @@ namespace SameEpisodeDuplicateFinder
                 allItem.SubItems.Add(FormatTotalSize(allRows));
                 allItem.Tag = AllSeriesTag;
                 seriesListView.Items.Add(allItem);
-                AddSeriesCoverItem("Duplicate Files", AllSeriesTag, allRows.Count);
+                var missingCountByTitle = missingEpisodeRows
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Title))
+                    .GroupBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.Sum(x => x.MissingCount), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var group in seriesSource.GroupBy(x => x.Title, StringComparer.OrdinalIgnoreCase)
                                                   .Where(g => string.IsNullOrWhiteSpace(activeSearchText) || ContainsSearch(g.Key, activeSearchText))
@@ -4898,45 +5144,81 @@ namespace SameEpisodeDuplicateFinder
                                      .ThenBy(x => x.FileName, StringComparer.OrdinalIgnoreCase)
                                      .ToList();
                     var locations = GetDistinctLocations(files);
-                    if (locations.Count < 2)
+                    var duplicateCount = allRows.Count(x => string.Equals(x.Title, group.Key, StringComparison.OrdinalIgnoreCase));
+                    int missingCount;
+                    missingCountByTitle.TryGetValue(group.Key, out missingCount);
+                    if (locations.Count < 2 && duplicateCount == 0 && missingCount == 0)
                     {
                         continue;
                     }
 
-                    var duplicateCount = allRows.Count(x => string.Equals(x.Title, group.Key, StringComparison.OrdinalIgnoreCase));
                     var aniDbMatch = files.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.AniDbDisplay));
                     var seriesText = aniDbMatch == null ? group.Key : string.Format("{0} -> {1}", group.Key, aniDbMatch.AniDbDisplay);
                     var seriesItem = new ListViewItem(seriesText);
-                    seriesItem.SubItems.Add(string.Format("{0:N0} locations | {1:N0} scanned | {2:N0} duplicate", locations.Count, files.Count, duplicateCount));
+                    seriesItem.SubItems.Add(string.Format("{0:N0} locations | {1:N0} scanned | {2:N0} duplicate | {3:N0} missing", locations.Count, files.Count, duplicateCount, missingCount));
                     seriesItem.SubItems.Add(FormatTotalSize(files));
                     seriesItem.Tag = group.Key;
-                    if (duplicateCount > 0)
+                    if (duplicateCount > 0 || missingCount > 0)
                     {
                         seriesItem.Font = new Font(seriesListView.Font, FontStyle.Bold);
                         seriesItem.BackColor = DuplicateSeriesBackColor;
                         seriesItem.ForeColor = DuplicateSeriesForeColor;
-                        seriesItem.ToolTipText = string.Format("{0:N0} duplicate candidate file(s) found in this series.", duplicateCount);
+                        seriesItem.ToolTipText = string.Format("{0:N0} duplicate candidate file(s); {1:N0} missing episode(s).", duplicateCount, missingCount);
                     }
                     seriesListView.Items.Add(seriesItem);
-
-                    AddSeriesCoverItem(group.Key, group.Key, files.Count);
                 }
 
-                activeSeriesTag = AllSeriesTag;
-                if (seriesListView.Items.Count > 0)
-                {
-                    seriesListView.Items[0].Selected = true;
-                }
-                if (seriesCoverView.Items.Count > 0)
-                {
-                    seriesCoverView.Items[0].Selected = true;
-                }
+                SelectSeriesPanelTag(preserveTag);
             }
             finally
             {
-                seriesCoverView.EndUpdate();
                 seriesListView.EndUpdate();
             }
+        }
+
+        private void SelectSeriesPanelTag(object tag)
+        {
+            var selectedTag = FindSeriesPanelTag(seriesListView, tag) ?? AllSeriesTag;
+            activeSeriesTag = selectedTag;
+            SelectListViewTag(seriesListView, selectedTag);
+        }
+
+        private static object FindSeriesPanelTag(ListView listView, object tag)
+        {
+            if (listView == null || listView.Items.Count == 0)
+            {
+                return null;
+            }
+
+            foreach (ListViewItem item in listView.Items)
+            {
+                if (TagsEqual(item.Tag, tag))
+                {
+                    return item.Tag;
+                }
+            }
+
+            return null;
+        }
+
+        private static void SelectListViewTag(ListView listView, object tag)
+        {
+            if (listView == null)
+            {
+                return;
+            }
+
+            foreach (ListViewItem item in listView.Items)
+            {
+                item.Selected = TagsEqual(item.Tag, tag);
+            }
+        }
+
+        private static bool TagsEqual(object left, object right)
+        {
+            var leftText = Convert.ToString(left);
+            var rightText = Convert.ToString(right);
+            return string.Equals(leftText, rightText, StringComparison.OrdinalIgnoreCase);
         }
 
         private IEnumerable<EpisodeFile> GetSeriesSourceRows()
@@ -5026,11 +5308,6 @@ namespace SameEpisodeDuplicateFinder
         }
 
         private void SeriesListView_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
-        {
-            SeriesItemSelectionChanged(e);
-        }
-
-        private void SeriesCoverView_ItemSelectionChanged(object sender, ListViewItemSelectionChangedEventArgs e)
         {
             SeriesItemSelectionChanged(e);
         }
@@ -5783,56 +6060,54 @@ namespace SameEpisodeDuplicateFinder
 
         private void ApplySeriesFilter(object tag)
         {
+            var sw = Stopwatch.StartNew();
             activeSeriesTag = tag;
             activeShellSection = "Duplicates";
-
-            var episodeFile = tag as EpisodeFile;
-            if (episodeFile != null)
+            AppendDiagnosticLog("UI", "Series selected: " + DisplayOrDash(Convert.ToString(tag)));
+            suppressDashboardRefresh = true;
+            try
             {
-                ShowRows(new List<EpisodeFile> { episodeFile });
-                UpdateDetails(episodeFile);
-                ApplyWorkspacePanelVisibility();
-                return;
-            }
-
-            var filter = tag as string;
-            if (filter == AllSeriesTag)
-            {
-                ShowRows(allRows);
-                UpdateDetails((EpisodeFile)null);
-                ApplyWorkspacePanelVisibility();
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(filter))
-            {
-                var seriesRows = GetSeriesSourceRows().Where(x => string.Equals(x.Title, filter, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (seriesRows.Count > 0)
+                var episodeFile = tag as EpisodeFile;
+                if (episodeFile != null)
                 {
-                    ShowRows(seriesRows);
+                    var showSw = Stopwatch.StartNew();
+                    ShowRows(new List<EpisodeFile> { episodeFile });
+                    AppendSlowDiagnostic("UI", "ShowRows for selected file", showSw.ElapsedMilliseconds, 500);
+                    UpdateDetails(episodeFile);
+                    return;
                 }
-                else
+
+                var filter = tag as string;
+                if (filter == AllSeriesTag)
                 {
-                    ShowRows(allRows.Where(x => string.Equals(x.Title, filter, StringComparison.OrdinalIgnoreCase)));
+                    var showSw = Stopwatch.StartNew();
+                    ShowRows(allRows);
+                    AppendSlowDiagnostic("UI", "ShowRows for all series", showSw.ElapsedMilliseconds, 500);
+                    UpdateDetails((EpisodeFile)null);
+                    return;
                 }
-                UpdateDetails((EpisodeFile)null);
-                ApplyWorkspacePanelVisibility();
-            }
-        }
 
-        private void AddSeriesCoverItem(string title, object tag, int count)
-        {
-            var imageKey = Convert.ToString(tag);
-            if (string.IsNullOrWhiteSpace(imageKey))
+                if (!string.IsNullOrWhiteSpace(filter))
+                {
+                    var filterSw = Stopwatch.StartNew();
+                    var seriesRows = GetSeriesSourceRows().Where(x => string.Equals(x.Title, filter, StringComparison.OrdinalIgnoreCase)).ToList();
+                    AppendSlowDiagnostic("UI", "Series row lookup for " + filter, filterSw.ElapsedMilliseconds, 500);
+                    var showSw = Stopwatch.StartNew();
+                    ShowRows(seriesRows.Count > 0
+                        ? seriesRows
+                        : allRows.Where(x => string.Equals(x.Title, filter, StringComparison.OrdinalIgnoreCase)));
+                    AppendSlowDiagnostic("UI", "ShowRows for " + filter, showSw.ElapsedMilliseconds, 500);
+                    UpdateDetails((EpisodeFile)null);
+                }
+            }
+            finally
             {
-                imageKey = title;
+                suppressDashboardRefresh = false;
+                var workspaceSw = Stopwatch.StartNew();
+                ApplyWorkspacePanelVisibility();
+                AppendSlowDiagnostic("UI", "Workspace refresh after series selection", workspaceSw.ElapsedMilliseconds, 500);
+                AppendDiagnosticLog("UI", "Series selection applied in " + sw.ElapsedMilliseconds.ToString("N0") + " ms.");
             }
-
-            seriesCoverImages.Images.Add(imageKey, CreatePlaceholderCover(title, seriesCoverImages.ImageSize));
-            var item = new ListViewItem(string.Format("{0}\r\n{1:N0}", title, count));
-            item.Tag = tag;
-            item.ImageKey = imageKey;
-            seriesCoverView.Items.Add(item);
         }
 
         private Image CreateSeriesCoverImage(string title, string coverPath)
@@ -5844,7 +6119,7 @@ namespace SameEpisodeDuplicateFinder
                     using (var stream = new FileStream(coverPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                     using (var original = Image.FromStream(stream))
                     {
-                        return CreateCroppedImage(original, seriesCoverImages.ImageSize);
+                        return CreateCroppedImage(original, SeriesArtworkImageSize);
                     }
                 }
                 catch
@@ -5852,7 +6127,7 @@ namespace SameEpisodeDuplicateFinder
                 }
             }
 
-            return CreatePlaceholderCover(title, seriesCoverImages.ImageSize);
+            return CreatePlaceholderCover(title, SeriesArtworkImageSize);
         }
 
         private static Image CreateCroppedImage(Image original, Size size)
@@ -5912,14 +6187,12 @@ namespace SameEpisodeDuplicateFinder
         {
             var fileList = (files ?? Enumerable.Empty<EpisodeFile>()).Where(x => x != null).ToList();
             var cacheTitle = fileList.Select(x => x.Title).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x)) ?? "";
-            var cacheRoot = GetPrimarySessionRoot() ?? "";
-            var cacheKey = cacheRoot + "|" + cacheTitle;
+            var cacheKey = GetSeriesCoverCacheKey(cacheTitle);
             string cachedPath;
             if (!string.IsNullOrWhiteSpace(cacheTitle) &&
-                seriesCoverPathCache.TryGetValue(cacheKey, out cachedPath) &&
-                File.Exists(cachedPath))
+                seriesCoverPathCache.TryGetValue(cacheKey, out cachedPath))
             {
-                return cachedPath;
+                return string.IsNullOrWhiteSpace(cachedPath) ? null : cachedPath;
             }
 
             var root = "";
@@ -5936,18 +6209,35 @@ namespace SameEpisodeDuplicateFinder
                 }
             }
 
+            var visitedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var checkedFolders = 0;
+            var sw = Stopwatch.StartNew();
             foreach (var file in fileList)
             {
                 var folder = GetExistingFolder(file);
                 var startingFolder = folder;
                 while (!string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder))
                 {
+                    var normalizedFolder = folder.TrimEnd('\\');
+                    if (!visitedFolders.Add(normalizedFolder))
+                    {
+                        break;
+                    }
+
+                    checkedFolders++;
+                    if (checkedFolders > 12)
+                    {
+                        AppendDiagnosticLog("UI", cacheTitle + ": cover search stopped after checking 12 folders.");
+                        break;
+                    }
+
                     var cover = FindCoverInFolder(folder, file.Title, PathsEqual(folder, startingFolder));
                     if (!string.IsNullOrWhiteSpace(cover))
                     {
-                        if (!string.IsNullOrWhiteSpace(cacheTitle))
+                        CacheSeriesCoverPath(cacheTitle, cover);
+                        if (sw.ElapsedMilliseconds > 1000)
                         {
-                            seriesCoverPathCache[cacheKey] = cover;
+                            AppendDiagnosticLog("UI", cacheTitle + ": cover path found after " + sw.ElapsedMilliseconds.ToString("N0") + " ms.");
                         }
                         return cover;
                     }
@@ -5962,7 +6252,28 @@ namespace SameEpisodeDuplicateFinder
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(cacheTitle))
+            {
+                seriesCoverPathCache[cacheKey] = "";
+                if (sw.ElapsedMilliseconds > 1000)
+                {
+                    AppendDiagnosticLog("UI", cacheTitle + ": no cover found after " + sw.ElapsedMilliseconds.ToString("N0") + " ms.");
+                }
+            }
             return null;
+        }
+
+        private string GetSeriesCoverCacheKey(string title)
+        {
+            return (GetPrimarySessionRoot() ?? "") + "|" + (title ?? "");
+        }
+
+        private void CacheSeriesCoverPath(string title, string path)
+        {
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                seriesCoverPathCache[GetSeriesCoverCacheKey(title)] = path ?? "";
+            }
         }
 
         private static string FindCoverInFolder(string folder, string title, bool allowGenericCoverNames)
@@ -6154,6 +6465,133 @@ namespace SameEpisodeDuplicateFinder
             RefreshReviewGrids();
             UpdateDetails(file);
             UpdateSummary("Ignored selected episode group.");
+        }
+
+        private void InspectorRemoveArtworkButton_Click(object sender, EventArgs e)
+        {
+            RemoveSelectedSeriesArtwork(false);
+        }
+
+        private void InspectorFetchArtworkButton_Click(object sender, EventArgs e)
+        {
+            var title = GetSelectedShellSeriesTitle(GetCurrentCandidateFile());
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                MessageBox.Show(this, "Select a series before fetching artwork.", "Fetch Artwork", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var rowsForTitle = GetShellSeriesRows(title, GetCurrentCandidateFile());
+            var coverPath = FindSeriesCoverPath(rowsForTitle);
+            if (!string.IsNullOrWhiteSpace(coverPath))
+            {
+                var remove = MessageBox.Show(
+                    this,
+                    "A local artwork file already exists for this series.\r\n\r\nRemove it and fetch artwork again?",
+                    "Replace Artwork",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (remove != DialogResult.Yes || !RemoveSelectedSeriesArtwork(true))
+                {
+                    return;
+                }
+            }
+
+            ClearArtworkFetchState(title);
+            QueueShellSeriesFetch(title, rowsForTitle);
+            UpdateSummary("Queued artwork fetch for " + title + ".");
+        }
+
+        private bool RemoveSelectedSeriesArtwork(bool silent)
+        {
+            var title = GetSelectedShellSeriesTitle(GetCurrentCandidateFile());
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                if (!silent)
+                {
+                    MessageBox.Show(this, "Select a series before removing artwork.", "Remove Artwork", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return false;
+            }
+
+            var rowsForTitle = GetShellSeriesRows(title, GetCurrentCandidateFile());
+            var coverPath = FindSeriesCoverPath(rowsForTitle);
+            if (string.IsNullOrWhiteSpace(coverPath) || !File.Exists(coverPath))
+            {
+                ClearSeriesCoverCache(title);
+                if (!silent)
+                {
+                    MessageBox.Show(this, "No local artwork file was found for this series.", "Remove Artwork", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                return false;
+            }
+
+            if (!silent)
+            {
+                var confirm = MessageBox.Show(
+                    this,
+                    "Remove this local artwork file?\r\n\r\n" + coverPath,
+                    "Remove Artwork",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+                if (confirm != DialogResult.Yes)
+                {
+                    return false;
+                }
+            }
+
+            try
+            {
+                File.Delete(coverPath);
+                ClearArtworkFetchState(title);
+                foreach (var row in allRows.Concat(allScannedRows).Where(x => x != null && string.Equals(x.Title, title, StringComparison.OrdinalIgnoreCase)))
+                {
+                    row.ArtworkStatus = "Missing cover";
+                }
+
+                UpdateShellSeriesHeader();
+                ClearPendingShellSeriesFetch();
+                UpdateInspectorPreviewForTitle(title);
+                RefreshReviewGrids();
+                AppendDiagnosticLog("COVER", title + ": removed local artwork " + coverPath);
+                UpdateSummary("Removed artwork for " + title + ".");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogException("Remove artwork failed", ex);
+                MessageBox.Show(this, ex.Message, "Remove Artwork failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
+        }
+
+        private void ClearArtworkFetchState(string title)
+        {
+            ClearSeriesCoverCache(title);
+            lock (shellCoverFetchLock)
+            {
+                shellCoverFetchAttempted.Remove(title ?? "");
+                shellCoverFetchInProgress.Remove(title ?? "");
+            }
+        }
+
+        private void ClearAllArtworkFetchState()
+        {
+            ClearPendingShellSeriesFetch();
+            seriesCoverPathCache.Clear();
+            lock (shellCoverFetchLock)
+            {
+                shellCoverFetchAttempted.Clear();
+                shellCoverFetchInProgress.Clear();
+            }
+        }
+
+        private void ClearSeriesCoverCache(string title)
+        {
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                seriesCoverPathCache.Remove(GetSeriesCoverCacheKey(title));
+            }
         }
 
         private void InspectorOpenFolderButton_Click(object sender, EventArgs e)
@@ -6727,11 +7165,13 @@ namespace SameEpisodeDuplicateFinder
         private void UpdateRowsAfterMove(EpisodeFile movedRow, string oldPath, string newPath)
         {
             var newFolder = Path.GetDirectoryName(newPath);
+            var createdTicks = File.GetCreationTimeUtc(newPath).Ticks;
             var lastWriteTicks = File.GetLastWriteTimeUtc(newPath).Ticks;
             foreach (var row in allScannedRows.Concat(allRows).Where(x => x != null && (ReferenceEquals(x, movedRow) || string.Equals(x.Path, oldPath, StringComparison.OrdinalIgnoreCase))).Distinct())
             {
                 row.Path = newPath;
                 row.FileLocation = newFolder;
+                row.CreatedUtcTicks = createdTicks;
                 row.LastWriteUtcTicks = lastWriteTicks;
             }
         }
@@ -7145,17 +7585,21 @@ namespace SameEpisodeDuplicateFinder
                 return;
             }
 
+            var sw = Stopwatch.StartNew();
             var previewTitle = string.IsNullOrWhiteSpace(title) ? GetSelectedShellSeriesTitle(GetCurrentCandidateFile()) : title;
             var rowsForTitle = string.IsNullOrWhiteSpace(previewTitle)
                 ? new List<EpisodeFile>()
                 : GetShellSeriesRows(previewTitle, null);
+            var coverSw = Stopwatch.StartNew();
             var coverPath = rowsForTitle.Count == 0 ? "" : FindSeriesCoverPath(rowsForTitle);
+            AppendSlowDiagnostic("UI", "Inspector FindSeriesCoverPath for " + DisplayOrDash(previewTitle), coverSw.ElapsedMilliseconds, 500);
             var oldImage = inspectorPreviewBox.Image;
             inspectorPreviewBox.Image = CreateSeriesCoverImage(string.IsNullOrWhiteSpace(previewTitle) ? "Preview" : previewTitle, coverPath);
             if (oldImage != null)
             {
                 oldImage.Dispose();
             }
+            AppendSlowDiagnostic("UI", "UpdateInspectorPreview for " + DisplayOrDash(previewTitle), sw.ElapsedMilliseconds, 500);
         }
 
         private string GetSearchQuery(MissingEpisodeRow row)
@@ -7381,10 +7825,13 @@ namespace SameEpisodeDuplicateFinder
                 selectedFeedRows.Clear();
                 SaveAndRefreshSelectedFeed();
                 seriesListView.Items.Clear();
-                seriesCoverView.Items.Clear();
-                seriesCoverImages.Images.Clear();
                 activeSeriesTag = null;
+                ClearAllArtworkFetchState();
                 UpdateDetails((EpisodeFile)null);
+            }
+            else
+            {
+                ClearAllArtworkFetchState();
             }
 
             var worker = new BackgroundWorker();
@@ -7498,9 +7945,8 @@ namespace SameEpisodeDuplicateFinder
             selectedFeedRows.Clear();
             SaveAndRefreshSelectedFeed();
             seriesListView.Items.Clear();
-            seriesCoverView.Items.Clear();
-            seriesCoverImages.Images.Clear();
             activeSeriesTag = null;
+            ClearAllArtworkFetchState();
             UpdateDetails((EpisodeFile)null);
 
             var worker = new BackgroundWorker();
@@ -7850,41 +8296,147 @@ namespace SameEpisodeDuplicateFinder
 
         private AniDbAnimeResult GetAniDbMatchForCover(string title, IEnumerable<EpisodeFile> files)
         {
-            var existing = files.FirstOrDefault(x => IsAniDbHttpId(x.AniDbId));
+            var fileList = (files ?? Enumerable.Empty<EpisodeFile>()).Where(x => x != null).ToList();
+            var referenceYear = GetReferenceYearFromCreatedUtc(fileList);
+            var existing = fileList.FirstOrDefault(x => IsAniDbHttpId(x.AniDbId));
             var match = new AniDbAnimeResult { QueryTitle = title };
             if (existing != null)
             {
                 match.AniDbId = existing.AniDbId;
                 match.Title = string.IsNullOrWhiteSpace(existing.AniDbTitle) ? title : existing.AniDbTitle;
                 match.Year = existing.AniDbYear;
+                if (!IsAniDbCoverMatchSafe(title, match))
+                {
+                    match.Error = "Existing AniDB metadata was ignored for cover art because it did not safely match the selected series.";
+                    AppendDiagnosticLog("COVER", title + ": ignored existing AniDB metadata for cover art: " + DisplayOrDash(match.Title) + ".");
+                    match.AniDbId = "";
+                    return match;
+                }
             }
             else
             {
-                var candidate = FindAniDbCandidates(title, "", 1).FirstOrDefault();
-                if (candidate == null)
+                var candidateMatch = FindBestAniDbCoverCandidate(title, "", referenceYear);
+                if (candidateMatch == null)
                 {
                     match.Error = "No AniDB match";
                     return match;
                 }
 
-                if (!IsAutomaticAniDbMatchConfident(candidate))
+                if (!candidateMatch.Found)
                 {
-                    match.Error = BuildLowConfidenceAniDbMessage(candidate);
+                    match.Error = string.IsNullOrWhiteSpace(candidateMatch.Error) ? "No AniDB match" : candidateMatch.Error;
                     AppendDiagnosticLog("METADATA", title + ": " + match.Error);
                     return match;
                 }
 
-                match.AniDbId = candidate.AniDbId;
-                match.Title = candidate.Title;
-                match.Score = candidate.Score;
+                match = candidateMatch;
             }
 
-            if (match.Found)
+            if (match.Found && string.IsNullOrWhiteSpace(match.PictureFile))
             {
                 match.PictureFile = AniDbClient.GetAnimePictureFile(match.AniDbId);
             }
 
             return match;
+        }
+
+        private AniDbAnimeResult FindBestAniDbCoverCandidate(string title, string targetFolder, int? referenceYear)
+        {
+            var candidates = FindAniDbCandidates(title, targetFolder, referenceYear.HasValue ? 5 : 1);
+            var topCandidate = candidates.FirstOrDefault();
+            if (topCandidate == null || !IsAutomaticAniDbMatchConfident(title, topCandidate))
+            {
+                LogRejectedAniDbCandidate(title, topCandidate, "cover lookup");
+                return topCandidate == null
+                    ? null
+                    : new AniDbAnimeResult { QueryTitle = title, Error = BuildLowConfidenceAniDbMessage(topCandidate), Score = topCandidate.Score };
+            }
+
+            if (!referenceYear.HasValue)
+            {
+                return new AniDbAnimeResult
+                {
+                    AniDbId = topCandidate.AniDbId,
+                    QueryTitle = title,
+                    Title = topCandidate.Title,
+                    Score = topCandidate.Score
+                };
+            }
+
+            var detailedMatches = new List<AniDbAnimeResult>();
+            foreach (var rejected in candidates.Where(x => x != null && !IsAutomaticAniDbMatchConfident(title, x)))
+            {
+                LogRejectedAniDbCandidate(title, rejected, "year-aware cover lookup");
+            }
+
+            foreach (var candidate in candidates.Where(x => IsAutomaticAniDbMatchConfident(title, x)).Take(3))
+            {
+                try
+                {
+                    var detailed = AniDbClient.LookupAnimeById(candidate.AniDbId, title, candidate.Title);
+                    detailed.Score = candidate.Score;
+                    detailedMatches.Add(detailed);
+                    if (IsNearReferenceYear(detailed.Year, referenceYear.Value))
+                    {
+                        AppendDiagnosticLog("COVER", title + ": preferred AniDB cover match " + detailed.Title + " using file-created year " + referenceYear.Value.ToString() + ".");
+                        return detailed;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendDiagnosticLog("COVER", title + ": year-aware AniDB candidate check failed for " + candidate.Title + " - " + ex.Message);
+                }
+            }
+
+            return detailedMatches.FirstOrDefault() ?? new AniDbAnimeResult
+            {
+                AniDbId = topCandidate.AniDbId,
+                QueryTitle = title,
+                Title = topCandidate.Title,
+                Score = topCandidate.Score
+            };
+        }
+
+        internal static int? GetReferenceYearFromCreatedUtcForTest(IEnumerable<EpisodeFile> files)
+        {
+            return GetReferenceYearFromCreatedUtc(files);
+        }
+
+        private static int? GetReferenceYearFromCreatedUtc(IEnumerable<EpisodeFile> files)
+        {
+            var years = (files ?? Enumerable.Empty<EpisodeFile>())
+                .Where(x => x != null && x.CreatedUtcTicks > 0)
+                .Select(x =>
+                {
+                    try
+                    {
+                        return new DateTime(x.CreatedUtcTicks, DateTimeKind.Utc).Year;
+                    }
+                    catch
+                    {
+                        return 0;
+                    }
+                })
+                .Where(x => x >= 1980 && x <= DateTime.UtcNow.Year + 1)
+                .GroupBy(x => x)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key)
+                .Select(g => (int?)g.Key)
+                .FirstOrDefault();
+            return years;
+        }
+
+        private static bool IsNearReferenceYear(string providerYear, int referenceYear)
+        {
+            int year;
+            if (string.IsNullOrWhiteSpace(providerYear) ||
+                providerYear.Length < 4 ||
+                !int.TryParse(providerYear.Substring(0, 4), out year))
+            {
+                return false;
+            }
+
+            return Math.Abs(year - referenceYear) <= 1;
         }
 
         private static bool IsAniDbHttpId(string value)
@@ -7915,6 +8467,11 @@ namespace SameEpisodeDuplicateFinder
             var cleaned = CleanCoverSearchTitle(title);
             AddCoverSearchTitle(titles, NormalizeCoverSearchPunctuation(cleaned));
             AddCoverSearchTitle(titles, cleaned);
+            foreach (var ordinalVariant in BuildOrdinalSeasonSearchVariants(cleaned))
+            {
+                AddCoverSearchTitle(titles, NormalizeCoverSearchPunctuation(ordinalVariant));
+                AddCoverSearchTitle(titles, ordinalVariant);
+            }
 
             var withoutPartSuffix = StripCoverSearchSeasonSuffix(cleaned);
             if (!string.Equals(withoutPartSuffix, cleaned, StringComparison.OrdinalIgnoreCase))
@@ -7977,6 +8534,24 @@ namespace SameEpisodeDuplicateFinder
             var stripped = Regex.Replace(title.Trim(), @"(?:\s+[-:])?\s+\b(?:Part|Cour|Season)\s+\d{1,2}\b$", "", RegexOptions.IgnoreCase);
             stripped = Regex.Replace(stripped, @"\s+\bS\d{1,2}\b$", "", RegexOptions.IgnoreCase);
             return Regex.Replace(stripped, @"\s+", " ").Trim();
+        }
+
+        private static IEnumerable<string> BuildOrdinalSeasonSearchVariants(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                yield break;
+            }
+
+            var seasonMatch = Regex.Match(title, @"\b(?<number>\d{1,2})(?:st|nd|rd|th)\s+Season\b", RegexOptions.IgnoreCase);
+            if (seasonMatch.Success)
+            {
+                yield return Regex.Replace(
+                    title,
+                    @"\b(?<number>\d{1,2})(?:st|nd|rd|th)\s+Season\b",
+                    "Season ${number}",
+                    RegexOptions.IgnoreCase);
+            }
         }
 
         private static int FindCoverSearchSubtitleSeparator(string title)
@@ -8374,8 +8949,9 @@ namespace SameEpisodeDuplicateFinder
                 return new AniDbAnimeResult { QueryTitle = title, Error = "No AniDB match" };
             }
 
-            if (!IsAutomaticAniDbMatchConfident(candidate))
+            if (!IsAutomaticAniDbMatchConfident(title, candidate))
             {
+                LogRejectedAniDbCandidate(title, candidate, "metadata lookup");
                 return new AniDbAnimeResult { QueryTitle = title, Error = BuildLowConfidenceAniDbMessage(candidate), Score = candidate.Score };
             }
 
@@ -8390,7 +8966,71 @@ namespace SameEpisodeDuplicateFinder
 
         internal static bool IsAutomaticAniDbMatchConfident(AniDbTitleCandidate candidate)
         {
-            return candidate != null && candidate.Score >= MinimumAutomaticAniDbMatchScore;
+            return candidate != null && candidate.Score >= 100;
+        }
+
+        internal static bool IsAutomaticAniDbMatchConfidentForTest(string queryTitle, AniDbTitleCandidate candidate)
+        {
+            return IsAutomaticAniDbMatchConfident(queryTitle, candidate);
+        }
+
+        private static bool IsAutomaticAniDbMatchConfident(string queryTitle, AniDbTitleCandidate candidate)
+        {
+            if (IsAutomaticAniDbMatchConfident(candidate))
+            {
+                return true;
+            }
+
+            if (candidate == null || candidate.Score < 85)
+            {
+                return false;
+            }
+
+            if (!IsPreferredAniDbTitleType(candidate.TitleType))
+            {
+                return false;
+            }
+
+            return AniDbTitleIndex.IsSafeOfficialExpansion(queryTitle, candidate.Title) ||
+                   AniDbTitleIndex.IsSafeSeasonYearRepresentation(queryTitle, candidate.Title);
+        }
+
+        private static bool IsPreferredAniDbTitleType(string titleType)
+        {
+            return string.Equals(titleType, "main", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(titleType, "official", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsAniDbCoverMatchSafeForTest(string queryTitle, AniDbAnimeResult match)
+        {
+            return IsAniDbCoverMatchSafe(queryTitle, match);
+        }
+
+        private static bool IsAniDbCoverMatchSafe(string queryTitle, AniDbAnimeResult match)
+        {
+            if (match == null || !match.Found)
+            {
+                return false;
+            }
+
+            if (match.Score >= 100)
+            {
+                return true;
+            }
+
+            if (AniDbTitleIndex.IsSafeSeasonYearRepresentation(queryTitle, match.Title))
+            {
+                return true;
+            }
+
+            return IsAutomaticAniDbMatchConfident(
+                queryTitle,
+                new AniDbTitleCandidate
+                {
+                    Title = match.Title,
+                    TitleType = "main",
+                    Score = AniDbTitleIndex.ScoreTitleForTest(queryTitle, match.Title)
+                });
         }
 
         private static string BuildLowConfidenceAniDbMessage(AniDbTitleCandidate candidate)
@@ -8403,6 +9043,38 @@ namespace SameEpisodeDuplicateFinder
             return string.Format(
                 "Low-confidence AniDB match ignored: {0} (score {1:N0})",
                 string.IsNullOrWhiteSpace(candidate.Title) ? "unknown title" : candidate.Title,
+                candidate.Score);
+        }
+
+        internal static string BuildRejectedAniDbCandidateDiagnosticForTest(string queryTitle, AniDbTitleCandidate candidate, string context)
+        {
+            return BuildRejectedAniDbCandidateDiagnostic(queryTitle, candidate, context);
+        }
+
+        private static void LogRejectedAniDbCandidate(string queryTitle, AniDbTitleCandidate candidate, string context)
+        {
+            if (candidate == null || candidate.Score < 85)
+            {
+                return;
+            }
+
+            AppendDiagnosticLog("METADATA-REJECTED", BuildRejectedAniDbCandidateDiagnostic(queryTitle, candidate, context));
+        }
+
+        private static string BuildRejectedAniDbCandidateDiagnostic(string queryTitle, AniDbTitleCandidate candidate, string context)
+        {
+            if (candidate == null)
+            {
+                return "No rejected AniDB candidate.";
+            }
+
+            return string.Format(
+                "{0}: query=\"{1}\" rejected=\"{2}\" aid={3} type={4} score={5:N0}. Review for alternate title/language or season/part mismatch.",
+                string.IsNullOrWhiteSpace(context) ? "AniDB near-match rejected" : context,
+                DisplayOrDash(queryTitle),
+                DisplayOrDash(candidate.Title),
+                DisplayOrDash(candidate.AniDbId),
+                DisplayOrDash(candidate.TitleType),
                 candidate.Score);
         }
 
@@ -8421,7 +9093,7 @@ namespace SameEpisodeDuplicateFinder
                     }
                 }
 
-                if (maxResults <= 1 && found.Count > 0)
+                if (maxResults <= 1 && found.Any(x => IsAutomaticAniDbMatchConfident(title, x)))
                 {
                     break;
                 }
@@ -8441,6 +9113,11 @@ namespace SameEpisodeDuplicateFinder
 
         private void ApplyAniDbMatches(Dictionary<string, AniDbAnimeResult> matches)
         {
+            ApplyAniDbMatches(matches, true, true);
+        }
+
+        private void ApplyAniDbMatches(Dictionary<string, AniDbAnimeResult> matches, bool refreshSeriesPanel, bool saveCache)
+        {
             foreach (var row in allRows.Concat(allScannedRows).Where(x => x != null).Distinct())
             {
                 AniDbAnimeResult match;
@@ -8455,8 +9132,11 @@ namespace SameEpisodeDuplicateFinder
             }
 
             RefreshReviewGrids();
-            PopulateSeriesPanel();
-            if (CanWriteSingleRootCache())
+            if (refreshSeriesPanel)
+            {
+                PopulateSeriesPanel();
+            }
+            if (saveCache && CanWriteSingleRootCache())
             {
                 SaveCurrentSessionCache();
             }
@@ -8508,6 +9188,7 @@ namespace SameEpisodeDuplicateFinder
                     cached.LastWriteUtcTicks == file.LastWriteUtcTicks &&
                     cached.File != null)
                 {
+                    cached.File.CreatedUtcTicks = cached.CreatedUtcTicks > 0 ? cached.CreatedUtcTicks : file.CreatedUtcTicks;
                     cached.File.LastWriteUtcTicks = cached.LastWriteUtcTicks;
                     parsed.Add(cached.File);
                     cacheHits++;
@@ -8743,7 +9424,7 @@ namespace SameEpisodeDuplicateFinder
         {
             using (var writer = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
-                writer.WriteLine("Delete,Episode,FileLocation,EpisodeFile,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title,SizeBytes,Path");
+                writer.WriteLine("Delete,Episode,FileLocation,EpisodeFile,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title,SizeBytes,CreatedUtcTicks,Path");
                 foreach (var row in GetActiveDataSet())
                 {
                     writer.WriteLine(string.Join(",", new[]
@@ -8761,6 +9442,7 @@ namespace SameEpisodeDuplicateFinder
                         Csv(row.Key),
                         Csv(row.Title),
                         Csv(row.SizeBytes.ToString()),
+                        Csv(row.CreatedUtcTicks.ToString()),
                         Csv(row.Path)
                     }));
                 }
@@ -9109,8 +9791,6 @@ namespace SameEpisodeDuplicateFinder
             allRows.Clear();
             allScannedRows.Clear();
             seriesListView.Items.Clear();
-            seriesCoverView.Items.Clear();
-            seriesCoverImages.Images.Clear();
             activeSeriesTag = null;
             UpdateDetails((EpisodeFile)null);
 
@@ -9255,7 +9935,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 writer.WriteLine("CacheRoot,CreatedUtc");
                 writer.WriteLine(string.Join(",", new[] { Csv(NormalizeRoot(root)), Csv(DateTime.UtcNow.ToString("o")) }));
-                writer.WriteLine("Delete,Episode,FileLocation,OriginalFileName,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title,SizeBytes,Path");
+                writer.WriteLine("Delete,Episode,FileLocation,OriginalFileName,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title,SizeBytes,CreatedUtcTicks,Path");
                 foreach (var row in data)
                 {
                     writer.WriteLine(string.Join(",", new[]
@@ -9273,6 +9953,7 @@ namespace SameEpisodeDuplicateFinder
                         Csv(row.Key),
                         Csv(row.Title),
                         Csv(row.SizeBytes.ToString()),
+                        Csv(row.CreatedUtcTicks.ToString()),
                         Csv(row.Path)
                     }));
                 }
@@ -9295,7 +9976,7 @@ namespace SameEpisodeDuplicateFinder
             {
                 writer.WriteLine("CacheRoot,CreatedUtc");
                 writer.WriteLine(string.Join(",", new[] { Csv(NormalizeRoot(root)), Csv(DateTime.UtcNow.ToString("o")) }));
-                writer.WriteLine("Path,SizeBytes,LastWriteUtcTicks,Episode,FileLocation,OriginalFileName,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title");
+                writer.WriteLine("Path,SizeBytes,CreatedUtcTicks,LastWriteUtcTicks,Episode,FileLocation,OriginalFileName,SubtitleGroup,SizeMB,Version,AniDbId,AniDbTitle,AniDbYear,Key,Title");
                 var progressUtc = DateTime.MinValue;
                 var written = 0;
                 foreach (var row in data)
@@ -9305,6 +9986,7 @@ namespace SameEpisodeDuplicateFinder
                     {
                         Csv(row.Path),
                         Csv(row.SizeBytes.ToString()),
+                        Csv(row.CreatedUtcTicks.ToString()),
                         Csv(row.LastWriteUtcTicks.ToString()),
                         Csv(row.Episode),
                         Csv(row.FileLocation),
@@ -9397,6 +10079,7 @@ namespace SameEpisodeDuplicateFinder
                     }
 
                     long sizeBytes;
+                    long createdUtcTicks;
                     long lastWriteUtcTicks;
                     decimal sizeMB;
                     var path = ReadField(headerMap, fields, "Path");
@@ -9406,6 +10089,7 @@ namespace SameEpisodeDuplicateFinder
                     }
 
                     long.TryParse(ReadField(headerMap, fields, "SizeBytes", "Size Bytes"), out sizeBytes);
+                    long.TryParse(ReadField(headerMap, fields, "CreatedUtcTicks"), out createdUtcTicks);
                     long.TryParse(ReadField(headerMap, fields, "LastWriteUtcTicks"), out lastWriteUtcTicks);
                     decimal.TryParse(ReadField(headerMap, fields, "SizeMB", "MB"), out sizeMB);
 
@@ -9414,6 +10098,7 @@ namespace SameEpisodeDuplicateFinder
                         Delete = false,
                         Path = path,
                         SizeBytes = sizeBytes,
+                        CreatedUtcTicks = createdUtcTicks,
                         LastWriteUtcTicks = lastWriteUtcTicks,
                         Episode = ReadField(headerMap, fields, "Episode"),
                         FileLocation = ReadField(headerMap, fields, "FileLocation", "Location"),
@@ -9431,6 +10116,7 @@ namespace SameEpisodeDuplicateFinder
                     result[path] = new CachedParsedFile
                     {
                         SizeBytes = sizeBytes,
+                        CreatedUtcTicks = createdUtcTicks,
                         LastWriteUtcTicks = lastWriteUtcTicks,
                         File = file
                     };
@@ -9513,8 +10199,11 @@ namespace SameEpisodeDuplicateFinder
                     var key = ReadField(headerMap, fields, "Key", "GroupKey", "Group Key");
                     var title = ReadField(headerMap, fields, "Title");
                     var sizeBytesText = ReadField(headerMap, fields, "SizeBytes", "Size Bytes");
+                    var createdUtcTicksText = ReadField(headerMap, fields, "CreatedUtcTicks");
 
+                    long createdUtcTicks;
                     long.TryParse(sizeBytesText, out sizeBytes);
+                    long.TryParse(createdUtcTicksText, out createdUtcTicks);
                     decimal.TryParse(sizeMBText, out sizeMB);
 
                     result.Add(new EpisodeFile
@@ -9532,6 +10221,7 @@ namespace SameEpisodeDuplicateFinder
                         Key = key,
                         Title = title,
                         SizeBytes = sizeBytes,
+                        CreatedUtcTicks = createdUtcTicks,
                         Path = path
                     });
                     read++;

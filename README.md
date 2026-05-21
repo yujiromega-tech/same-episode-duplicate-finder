@@ -120,9 +120,14 @@ TVDB and TMDB can be configured as fallback metadata and cover providers when An
 
 ## Roadmap
 
-- Split the single source file into smaller classes.
-- Add sample screenshots and example CSV output.
-- Add a signed release build workflow.
+- Continue Phase 2 WinForms shell polish and workflow refinement.
+- Expand the non-destructive action planner into a user-visible suggested-work preview.
+- Extract core workflow logic so future UI shells can reuse it.
+- Add a lightweight Horn-clause-style planning layer, then evaluate Rete only if live rule matching becomes useful.
+- Explore Avalonia as the Phase 4+ multi-platform UI path after the core workflows are separated.
+- Add sample screenshots, example CSV output, and a signed release build workflow.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the phase rollout.
 
 ## License
 

@@ -13,6 +13,7 @@ namespace SameEpisodeDuplicateFinder.Tests
         public static int Main()
         {
             Run("filename parsing handles anime release names", FilenameParsingHandlesAnimeReleaseNames);
+            Run("filename parsing preserves file created year", FilenameParsingPreservesFileCreatedYear);
             Run("filename parsing handles season episode names", FilenameParsingHandlesSeasonEpisodeNames);
             Run("filename parsing ignores years and ambiguous ranges", FilenameParsingIgnoresYearsAndAmbiguousRanges);
             Run("filename parsing handles anime part titles", FilenameParsingHandlesAnimePartTitles);
@@ -24,13 +25,19 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
+            Run("cover matching reference year uses file creation time", CoverMatchingReferenceYearUsesFileCreationTime);
             Run("automatic AniDB matches require high confidence", AutomaticAniDbMatchesRequireHighConfidence);
+            Run("rejected AniDB near matches include review context", RejectedAniDbNearMatchesIncludeReviewContext);
+            Run("AniDB cover safety rejects stale wrong metadata", AniDbCoverSafetyRejectsStaleWrongMetadata);
+            Run("AniDB title scoring does not inflate repeated words", AniDbTitleScoringDoesNotInflateRepeatedWords);
+            Run("AniDB title scoring ignores unrelated language aliases", AniDbTitleScoringIgnoresUnrelatedLanguageAliases);
             Run("missing episode finder reports local gaps", MissingEpisodeFinderReportsLocalGaps);
             Run("missing episode search query uses search key", MissingEpisodeSearchQueryUsesSearchKey);
             Run("episode search triggers full-season fallback after weak seeded results", EpisodeSearchTriggersFullSeasonFallbackAfterWeakSeededResults);
             Run("episode search builds magnet link", EpisodeSearchBuildsMagnetLink);
             Run("merged scan recomputes duplicate groups across roots", MergedScanRecomputesDuplicateGroupsAcrossRoots);
             Run("network paths are detected before deletion", NetworkPathsAreDetectedBeforeDeletion);
+            Run("library action planner previews duplicate cover and gap work", LibraryActionPlannerPreviewsDuplicateCoverAndGapWork);
 
             Console.WriteLine();
             Console.WriteLine("{0} passed, {1} failed", passed, failed);
@@ -50,6 +57,17 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertEqual("v2", parsed.Version, "version");
             AssertEqual("frieren beyond journey's end|E001", parsed.Key, "group key");
             AssertEqual(file.FullName, parsed.Path, "path");
+        }
+
+        private static void FilenameParsingPreservesFileCreatedYear()
+        {
+            var root = Path.Combine(Path.GetTempPath(), "sedf-tests");
+            var file = CreateScannedFile(root, "Library", "Series - 01.mkv", 1000);
+            file.CreatedUtcTicks = new DateTime(2025, 7, 1, 0, 0, 0, DateTimeKind.Utc).Ticks;
+
+            EpisodeFile parsed;
+            AssertTrue(EpisodeParser.TryParseFile(file, root, out parsed), "file should parse");
+            AssertEqual(file.CreatedUtcTicks, parsed.CreatedUtcTicks, "created time should be preserved");
         }
 
         private static void FilenameParsingHandlesSeasonEpisodeNames()
@@ -229,13 +247,129 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(titles.Contains("Dr. Stone: Science Future"), "part suffix should be optional for cover lookup");
             AssertTrue(titles.Contains("Dr. Stone"), "base series should be a fallback");
             AssertTrue(titles.IndexOf("Dr. Stone: Science Future") < titles.IndexOf("Dr. Stone"), "specific title should be tried before base series");
+
+            var seasonTitles = MainForm.BuildCoverSearchTitles("Yozakura san Chi no Daisakusen 2nd Season");
+            AssertTrue(seasonTitles.Contains("Yozakura san Chi no Daisakusen Season 2"), "ordinal season should also search AniDB-style season number");
+        }
+
+        private static void CoverMatchingReferenceYearUsesFileCreationTime()
+        {
+            var files = new[]
+            {
+                new EpisodeFile { Title = "Show", CreatedUtcTicks = new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc).Ticks },
+                new EpisodeFile { Title = "Show", CreatedUtcTicks = new DateTime(2024, 6, 1, 0, 0, 0, DateTimeKind.Utc).Ticks },
+                new EpisodeFile { Title = "Show", CreatedUtcTicks = new DateTime(2023, 6, 1, 0, 0, 0, DateTimeKind.Utc).Ticks }
+            };
+
+            AssertEqual(2024, MainForm.GetReferenceYearFromCreatedUtcForTest(files), "most common created year should be used as reference");
         }
 
         private static void AutomaticAniDbMatchesRequireHighConfidence()
         {
             AssertTrue(MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Bad Girl", Score = 100 }), "exact title should be safe for automatic metadata/cover use");
-            AssertTrue(MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Sousou no Frieren", Score = 85 }), "base-series match should remain usable");
+            AssertTrue(!MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Sousou no Frieren", Score = 85 }), "base-series fallback should require manual review before saving cover art");
             AssertTrue(!MainForm.IsAutomaticAniDbMatchConfident(new AniDbTitleCandidate { Title = "Unrelated low-confidence title", Score = 35 }), "weak AniDB title matches should require manual review");
+            AssertTrue(MainForm.IsAutomaticAniDbMatchConfidentForTest(
+                "Hell Mode",
+                new AniDbTitleCandidate
+                {
+                    Title = "Hell Mode: The Hardcore Gamer Dominates in Another World with Garbage Balancing",
+                    TitleType = "official",
+                    Score = 85
+                }),
+                "official full-title expansions should be safe when the selected title is a clear prefix");
+            AssertTrue(MainForm.IsAutomaticAniDbMatchConfidentForTest(
+                "Jigokuraku 2nd Season",
+                new AniDbTitleCandidate
+                {
+                    Title = "Jigokuraku (2026)",
+                    TitleType = "main",
+                    Score = 85
+                }),
+                "season titles represented by an explicit year should be safe when the base title is exact");
+            AssertTrue(!MainForm.IsAutomaticAniDbMatchConfidentForTest(
+                "Urusei Yatsura 2nd Season",
+                new AniDbTitleCandidate
+                {
+                    Title = "Urusei Yatsura",
+                    TitleType = "main",
+                    Score = 85
+                }),
+                "base-series season fallbacks should still require manual review");
+        }
+
+        private static void RejectedAniDbNearMatchesIncludeReviewContext()
+        {
+            var text = MainForm.BuildRejectedAniDbCandidateDiagnosticForTest(
+                "Urusei Yatsura 2nd Season",
+                new AniDbTitleCandidate
+                {
+                    AniDbId = "123",
+                    Title = "Urusei Yatsura",
+                    TitleType = "syn",
+                    Score = 85
+                },
+                "metadata lookup");
+
+            AssertContains(text, "Urusei Yatsura 2nd Season", "diagnostic should include query");
+            AssertContains(text, "Urusei Yatsura", "diagnostic should include rejected title");
+            AssertContains(text, "score=85", "diagnostic should include score");
+            AssertContains(text, "alternate title/language", "diagnostic should explain why it is logged");
+        }
+
+        private static void AniDbCoverSafetyRejectsStaleWrongMetadata()
+        {
+            var wrong = new AniDbAnimeResult
+            {
+                AniDbId = "999",
+                Title = ".אוונגליון 2: (אי) אפשר להתקדם",
+                Score = 0
+            };
+            var exact = new AniDbAnimeResult
+            {
+                AniDbId = "100",
+                Title = "Urusei Yatsura 2nd Season",
+                Score = 0
+            };
+            var yearSeason = new AniDbAnimeResult
+            {
+                AniDbId = "18090",
+                Title = "Jigokuraku (2026)",
+                Score = 85
+            };
+
+            AssertTrue(!MainForm.IsAniDbCoverMatchSafeForTest("Urusei Yatsura 2nd Season", wrong), "wrong stale metadata should not be accepted for cover art");
+            AssertTrue(MainForm.IsAniDbCoverMatchSafeForTest("Urusei Yatsura 2nd Season", exact), "exact title metadata should be accepted even without a stored score");
+            AssertTrue(MainForm.IsAniDbCoverMatchSafeForTest("Jigokuraku 2nd Season", yearSeason), "year-labeled sequel metadata should be accepted for cover art when the base title is exact");
+        }
+
+        private static void AniDbTitleScoringDoesNotInflateRepeatedWords()
+        {
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Bullet Bullet", "Bullet Bullet"), "exact repeated-word title should still be exact");
+            AssertTrue(AniDbTitleIndex.ScoreTitleForTest("Bullet Bullet", "Black Bullet") < 85, "one shared repeated token should not be accepted as an automatic match");
+            AssertEqual(85, AniDbTitleIndex.ScoreTitleForTest("Sousou no Frieren 2nd Season", "Sousou no Frieren"), "base series fallback should stay usable");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Yozakura san Chi no Daisakusen 2nd Season", "Yozakura-san Chi no Daisakusen Season 2"), "ordinal season variants should score as exact");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Kingdom 6th Season", "Kingdom Season 6"), "ordinal season numbers should normalize before scoring");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Kijin Gentoushou", "Kijin Gentou Shou"), "romaji spacing differences should not block exact matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Code Geass Rozé of the Recapture", "Code Geass: Roze of the Recapture"), "diacritics should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Dungeon ni Deai wo Motomeru no wa Machigatteiru Darou ka III", "Dungeon ni Deai o Motomeru no wa Machigatteiru Darou ka III"), "wo/o romaji variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Kimi ha Houkago Insomnia", "Kimi wa Houkago Insomnia"), "ha/wa particle variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Kanojo mo Kanojo", "Kanozyo mo Kanozyo"), "jo/jyo/zyo variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Shoujo Shuumatsu Ryokou", "Shojo Shumatsu Ryoko"), "long-vowel romaji variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Tsunlise", "Tunlise"), "tsu/tu variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Fuuka", "Huuka"), "fu/hu variants should not block exact title matching");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Honzuki no Gekokujou S3", "Honzuki no Gekokujou 3"), "S-number shorthand should normalize before scoring");
+            AssertTrue(AniDbTitleIndex.ScoreTitleForTest("Hypnosis Mic Division Rap Battle Rhyme Anima +", "Hypnosis Mic: Division Rap Battle - Rhyme Anima") < 100, "plus-season titles should not collapse into base titles");
+            AssertEqual(100, AniDbTitleIndex.ScoreTitleForTest("Hypnosis Mic Division Rap Battle Rhyme Anima +", "Hypnosis Mic: Division Rap Battle - Rhyme Anima +"), "plus-season titles should match plus-season candidates");
+            AssertTrue(AniDbTitleIndex.ScoreTitleForTest("Tensei shitara Dragon no Tamago datta", "AG") < 85, "very short aliases should not match inside longer words");
+            AssertTrue(AniDbTitleIndex.IsSafeSeasonYearRepresentationForTest("Jigokuraku 2nd Season", "Jigokuraku (2026)"), "year-labeled sequel entries should be allowed when the base title is exact");
+            AssertTrue(AniDbTitleIndex.IsSafeSeasonYearRepresentationForTest("Genjitsu Shugi Yuusha no Oukoku Saikenki Part 2", "Genjitsu Shugi Yuusha no Oukoku Saikenki (2022)"), "part-number sequel labels should be accepted for year-labeled sequel entries when the base title is exact");
+            AssertTrue(AniDbTitleIndex.ShouldSkipTitleCandidateForTest("Jigokuraku 2nd Season", "2×1"), "number-only titles should be skipped for Latin queries");
+        }
+
+        private static void AniDbTitleScoringIgnoresUnrelatedLanguageAliases()
+        {
+            AssertTrue(AniDbTitleIndex.ShouldSkipTitleCandidateForTest("Yozakura san Chi no Daisakusen 2nd Season", ".אוונגליון 2: (אי) אפשר להתקדם"), "Hebrew Evangelion title should be skipped for Latin queries");
         }
 
         private static void MissingEpisodeFinderReportsLocalGaps()
@@ -374,6 +508,30 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(!MainForm.IsNetworkPath(@"C:\Media\Show\Show - 01.mkv"), "local path should not be treated as network");
         }
 
+        private static void LibraryActionPlannerPreviewsDuplicateCoverAndGapWork()
+        {
+            var files = new List<EpisodeFile>
+            {
+                NewEpisode("show|E001", "Show", "Show - 01 [1080p].mkv", 700L * 1024L * 1024L),
+                NewEpisode("show|E001", "Show", "Show - 01 [720p].mkv", 500L * 1024L * 1024L)
+            };
+            var gaps = new List<MissingEpisodeRow>
+            {
+                new MissingEpisodeRow
+                {
+                    Title = "Show",
+                    MissingEpisodes = "02",
+                    PresentRange = "01-03"
+                }
+            };
+
+            var actions = LibraryActionPlanner.BuildPreview(files, gaps, title => false);
+            AssertTrue(actions.Any(x => x.Category == LibraryActionCategory.FetchCover && x.SeriesTitle == "Show"), "cover fetch action should be planned");
+            AssertTrue(actions.Any(x => x.Category == LibraryActionCategory.Delete && x.TargetPath.EndsWith("[720p].mkv", StringComparison.OrdinalIgnoreCase)), "lower quality duplicate should be planned for delete review");
+            AssertTrue(actions.Any(x => x.Category == LibraryActionCategory.SearchMissing && x.Reason.Contains("02")), "missing episode search should be planned");
+            AssertEqual(LibraryActionCategory.FetchCover, actions[0].Category, "cover should be planned before deleting when no cover exists");
+        }
+
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)
         {
             var directory = Path.Combine(root, relativeFolder);
@@ -384,6 +542,7 @@ namespace SameEpisodeDuplicateFinder.Tests
                 Name = name,
                 BaseName = Path.GetFileNameWithoutExtension(name),
                 Length = sizeBytes,
+                CreatedUtcTicks = DateTime.UtcNow.Ticks,
                 LastWriteUtcTicks = DateTime.UtcNow.Ticks
             };
         }

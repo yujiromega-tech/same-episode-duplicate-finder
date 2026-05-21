@@ -17,6 +17,7 @@ namespace SameEpisodeDuplicateFinder
         public string FileName { get; set; }
         public string FileLocation { get; set; }
         public string Path { get; set; }
+        public long CreatedUtcTicks { get; set; }
         public long LastWriteUtcTicks { get; set; }
         public string AniDbId { get; set; }
         public string AniDbTitle { get; set; }
@@ -82,6 +83,7 @@ namespace SameEpisodeDuplicateFinder
         public string Name { get; set; }
         public string BaseName { get; set; }
         public long Length { get; set; }
+        public long CreatedUtcTicks { get; set; }
         public long LastWriteUtcTicks { get; set; }
     }
 
@@ -116,6 +118,25 @@ namespace SameEpisodeDuplicateFinder
         public string Reason { get; set; }
         public string CurrentPath { get; set; }
         public string TargetPath { get; set; }
+    }
+
+    internal enum LibraryActionCategory
+    {
+        Delete,
+        FetchCover,
+        SearchMissing,
+        ManualReview
+    }
+
+    internal sealed class LibraryAction
+    {
+        public int Priority { get; set; }
+        public LibraryActionCategory Category { get; set; }
+        public string SeriesTitle { get; set; }
+        public string TargetPath { get; set; }
+        public string Confidence { get; set; }
+        public string Reason { get; set; }
+        public string DerivedBy { get; set; }
     }
 
     internal sealed class MissingEpisodeRow

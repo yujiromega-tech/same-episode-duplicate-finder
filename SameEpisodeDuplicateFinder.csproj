@@ -31,6 +31,7 @@
     <Compile Include="src\EpisodeSearchService.cs" />
     <Compile Include="src\FileFormatFilter.cs" />
     <Compile Include="src\HttpTimeoutWebClient.cs" />
+    <Compile Include="src\LibraryActionPlanner.cs" />
     <Compile Include="src\MissingEpisodeAnalyzer.cs" />
     <Compile Include="src\Models.cs" />
     <Compile Include="src\RecommendationScorer.cs" />

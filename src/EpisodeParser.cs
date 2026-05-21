@@ -80,6 +80,7 @@ namespace SameEpisodeDuplicateFinder
                 FileName = file.Name,
                 FileLocation = file.DirectoryName,
                 Path = file.FullName,
+                CreatedUtcTicks = file.CreatedUtcTicks,
                 LastWriteUtcTicks = file.LastWriteUtcTicks
             };
 

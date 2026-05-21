@@ -11,6 +11,7 @@ $sources = @(
     (Join-Path $root "src\FileFormatFilter.cs"),
     (Join-Path $root "src\AniDbEpisodeService.cs"),
     (Join-Path $root "src\HttpTimeoutWebClient.cs"),
+    (Join-Path $root "src\LibraryActionPlanner.cs"),
     (Join-Path $root "src\MissingEpisodeAnalyzer.cs"),
     (Join-Path $root "src\Models.cs"),
     (Join-Path $root "src\RecommendationScorer.cs"),
