@@ -14,7 +14,9 @@ $sources = @(
     (Join-Path $root "src\LibraryActionPlanner.cs"),
     (Join-Path $root "src\MissingEpisodeAnalyzer.cs"),
     (Join-Path $root "src\Models.cs"),
+    (Join-Path $root "src\ProviderMatchEvaluator.cs"),
     (Join-Path $root "src\RecommendationScorer.cs"),
+    (Join-Path $root "src\SeriesIdentityResolver.cs"),
     (Join-Path $root "src\SameEpisodeDuplicateFinder.cs"),
     (Join-Path $root "src\TvDbClient.cs"),
     (Join-Path $root "src\TmDbClient.cs")

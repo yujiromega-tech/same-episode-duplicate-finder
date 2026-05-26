@@ -25,6 +25,12 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("action report writer escapes csv fields", ActionReportWriterEscapesCsvFields);
             Run("search matches only series title", SearchMatchesOnlySeriesTitle);
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
+            Run("cover fallback extracts TMDB folder ids", CoverFallbackExtractsTmDbFolderIds);
+            Run("cover fallback extracts TVDB folder ids and known matches", CoverFallbackExtractsTvDbFolderIdsAndKnownMatches);
+            Run("series identity resolver supports cross genre provider access", SeriesIdentityResolverSupportsCrossGenreProviderAccess);
+            Run("provider matcher prefers specific series over franchise parent", ProviderMatcherPrefersSpecificSeriesOverFranchiseParent);
+            Run("provider match evaluator shares fallback title scoring", ProviderMatchEvaluatorSharesFallbackTitleScoring);
+            Run("provider match evaluator ignores unrelated script aliases", ProviderMatchEvaluatorIgnoresUnrelatedScriptAliases);
             Run("cover matching reference year uses file creation time", CoverMatchingReferenceYearUsesFileCreationTime);
             Run("automatic AniDB matches require high confidence", AutomaticAniDbMatchesRequireHighConfidence);
             Run("rejected AniDB near matches include review context", RejectedAniDbNearMatchesIncludeReviewContext);
@@ -129,6 +135,12 @@ namespace SameEpisodeDuplicateFinder.Tests
             var defaultFilter = FileFormatFilter.CreateDefault();
 
             AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.ass", 10)), "default filter should ignore subtitles");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.ssa", 10)), "default filter should ignore SSA subtitles");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.vtt", 10)), "default filter should ignore WebVTT subtitles");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.sup", 10)), "default filter should ignore bitmap subtitles");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "cover.jpg", 10)), "default filter should ignore JPEG images");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "poster.webp", 10)), "default filter should ignore WebP images");
+            AssertTrue(defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "fanart.png", 10)), "default filter should ignore PNG images");
             AssertTrue(!defaultFilter.ShouldIgnore(CreateScannedFile(root, "Library", "Show - 01.mkv", 10)), "default filter should scan video");
             AssertEqual(".mkv", FileFormatFilter.NormalizeExtension(" MKV "), "extension normalization");
 
@@ -250,6 +262,263 @@ namespace SameEpisodeDuplicateFinder.Tests
 
             var seasonTitles = MainForm.BuildCoverSearchTitles("Yozakura san Chi no Daisakusen 2nd Season");
             AssertTrue(seasonTitles.Contains("Yozakura san Chi no Daisakusen Season 2"), "ordinal season should also search AniDB-style season number");
+
+            var sentaiTitles = MainForm.BuildCoverSearchTitles("Engine Sentai Go Onger");
+            AssertTrue(sentaiTitles.Contains("Engine Sentai Go-Onger"), "Super Sentai fallback should try provider hyphen spelling");
+
+            var riderTitles = MainForm.BuildCoverSearchTitles("Kamen Rider Ex Aid");
+            AssertTrue(riderTitles.Contains("Kamen Rider Ex-Aid"), "Kamen Rider fallback should try provider hyphen spelling");
+
+            var promoTitles = MainForm.BuildCoverSearchTitles("Power Rangers RPM ABC Kids Promo 01");
+            AssertTrue(promoTitles.Contains("Power Rangers RPM"), "provider search should strip promo suffixes from series titles");
+
+            var teamTitles = MainForm.BuildCoverSearchTitles("Voltasaur Team Kyoryuger");
+            AssertTrue(teamTitles.Contains("Kyoryuger"), "team-style tokusatsu titles should search the distinctive provider title token");
+
+            var providerTitles = MainForm.BuildProviderCoverSearchTitlesForTest(
+                "Power Rangers RPM ABC Kids Promo 01",
+                new[]
+                {
+                    new EpisodeFile
+                    {
+                        Title = "Power Rangers RPM ABC Kids Promo 01",
+                        FileLocation = @"X:\[TS]\[Power Rangers]\Power Rangers RPM",
+                        Path = @"X:\[TS]\[Power Rangers]\Power Rangers RPM\Power Rangers RPM ABC Kids Promo 01.mkv",
+                        FileName = "Power Rangers RPM ABC Kids Promo 01.mkv"
+                    }
+                });
+            AssertTrue(providerTitles.Contains("Power Rangers RPM"), "provider search should include cleaned folder title variants");
+        }
+
+        private static void CoverFallbackExtractsTmDbFolderIds()
+        {
+            var sidecarFolder = Path.Combine(Path.GetTempPath(), "sedf-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(sidecarFolder);
+            File.WriteAllText(Path.Combine(sidecarFolder, "tmdb.id"), "445566");
+
+            var rows = new[]
+            {
+                new EpisodeFile
+                {
+                    Title = "Kamen Rider Gotchard",
+                    FileLocation = @"X:\[TS]\[Kamen Rider-Other]\Kamen Rider Gotchard (2023) {tmdb-237930}",
+                    Path = @"X:\[TS]\[Kamen Rider-Other]\Kamen Rider Gotchard (2023) {tmdb-237930}\Kamen Rider Gotchard - 01.mkv",
+                    FileName = "Kamen Rider Gotchard - 01.mkv"
+                },
+                new EpisodeFile
+                {
+                    Title = "Kamen Rider Gotchard",
+                    FileLocation = @"X:\Other\No Provider",
+                    Path = @"X:\Other\No Provider\Kamen Rider Gotchard - 02.mkv",
+                    FileName = "Kamen Rider Gotchard - 02 {tmdb-237930}.mkv"
+                },
+                new EpisodeFile
+                {
+                    Title = "Sidecar Series",
+                    FileLocation = sidecarFolder,
+                    Path = Path.Combine(sidecarFolder, "Sidecar Series - 01.mkv"),
+                    FileName = "Sidecar Series - 01.mkv"
+                },
+                new EpisodeFile
+                {
+                    Title = "TV Series DB Alias",
+                    FileLocation = @"X:\Library\TV Series DB Alias [tsdb-778899]",
+                    Path = @"X:\Library\TV Series DB Alias [tsdb-778899]\TV Series DB Alias - 01.mkv",
+                    FileName = "TV Series DB Alias - 01.mkv"
+                }
+            };
+
+            List<string> ids;
+            try
+            {
+                ids = MainForm.ExtractTmDbProviderIdsForTest(rows);
+            }
+            finally
+            {
+                Directory.Delete(sidecarFolder, true);
+            }
+
+            AssertEqual(3, ids.Count, "duplicate TMDB ids should be de-duplicated while keeping explicit hints");
+            AssertEqual("237930", ids[0], "TMDB id should be extracted from folder or file hints");
+            AssertTrue(ids.Contains("445566"), "TMDB id should be extracted from tmdb.id sidecar hints");
+            AssertTrue(ids.Contains("778899"), "TSDB id hint should be treated as a TMDB TV-series provider id");
+        }
+
+        private static void CoverFallbackExtractsTvDbFolderIdsAndKnownMatches()
+        {
+            var sidecarFolder = Path.Combine(Path.GetTempPath(), "sedf-tests-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(sidecarFolder);
+            File.WriteAllText(Path.Combine(sidecarFolder, "tvdb.id"), "654321");
+
+            var rows = new[]
+            {
+                new EpisodeFile
+                {
+                    Title = "Some Series",
+                    FileLocation = @"X:\Library\Some Series {tvdb-123456}",
+                    Path = @"X:\Library\Some Series {tvdb-123456}\Some Series - 01.mkv",
+                    FileName = "Some Series - 01.mkv"
+                },
+                new EpisodeFile
+                {
+                    Title = "Mode Series",
+                    FileLocation = @"X:\Library\Mode Series [tvdb4-456789-absolute]",
+                    Path = @"X:\Library\Mode Series [tvdb4-456789-absolute]\Mode Series - 01.mkv",
+                    FileName = "Mode Series - 01.mkv"
+                },
+                new EpisodeFile
+                {
+                    Title = "Sidecar Series",
+                    FileLocation = sidecarFolder,
+                    Path = Path.Combine(sidecarFolder, "Sidecar Series - 01.mkv"),
+                    FileName = "Sidecar Series - 01.mkv"
+                }
+            };
+
+            List<string> ids;
+            try
+            {
+                ids = MainForm.ExtractTvDbProviderIdsForTest("Some Series", rows);
+            }
+            finally
+            {
+                Directory.Delete(sidecarFolder, true);
+            }
+
+            AssertEqual(3, ids.Count, "TVDB folder, mode, and sidecar ids should be extracted");
+            AssertEqual("123456", ids[0], "TVDB id should match folder hint");
+            AssertTrue(ids.Contains("456789"), "TVDB mode hints such as tvdb4 should be accepted");
+            AssertTrue(ids.Contains("654321"), "TVDB id should be extracted from tvdb.id sidecar hints");
+        }
+
+        private static void SeriesIdentityResolverSupportsCrossGenreProviderAccess()
+        {
+            var decade = MainForm.ExtractTvDbProviderIdsForTest("Kamen Rider Decade", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, decade.Count, "Kamen Rider Decade should not be hardcoded as a direct TVDB fix in application code");
+
+            var gozyuger = MainForm.ExtractTvDbProviderIdsForTest("Super Sentai GoJyuujer", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, gozyuger.Count, "Super Sentai GoJyuujer should not be hardcoded as a direct TVDB fix in application code");
+
+            var sealTitles = MainForm.BuildCoverSearchTitles("SEAL Team Six");
+            AssertTrue(sealTitles.Contains("SIX"), "SEAL Team Six should search provider alias SIX");
+
+            var gozyugerTitles = MainForm.BuildCoverSearchTitles("Super Sentai GoJyuujer");
+            AssertTrue(gozyugerTitles.Contains("No.1 Sentai Gozyuger"), "GoJyuujer should search official provider spelling Gozyuger");
+
+            var macGyverUnknown = MainForm.ExtractTvDbProviderIdsForTest("MacGyver", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, macGyverUnknown.Count, "MacGyver without a year should remain manual-review ambiguous");
+
+            var macGyver2016 = MainForm.ExtractTvDbProviderIdsForTest(
+                "MacGyver",
+                new[]
+                {
+                    new EpisodeFile { CreatedUtcTicks = new DateTime(2016, 9, 23, 0, 0, 0, DateTimeKind.Utc).Ticks },
+                    new EpisodeFile { CreatedUtcTicks = new DateTime(2017, 1, 1, 0, 0, 0, DateTimeKind.Utc).Ticks }
+                });
+            AssertEqual(0, macGyver2016.Count, "MacGyver should not be hardcoded to one TVDB series; provider search or explicit IDs should decide");
+
+            var kiramager = MainForm.ExtractTvDbProviderIdsForTest("Machine Sentai Kiramager", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, kiramager.Count, "Kiramager should not be hardcoded as a direct TVDB fix in application code");
+
+            var goOnger = MainForm.ExtractTvDbProviderIdsForTest("Engine Sentai Go Onger", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, goOnger.Count, "Go-Onger should not be hardcoded as a direct TVDB fix in application code");
+
+            var goseiger = MainForm.ExtractTvDbProviderIdsForTest("Tensou Sentai Goseiger", Enumerable.Empty<EpisodeFile>());
+            AssertEqual(0, goseiger.Count, "Goseiger should not be hardcoded as a direct TVDB fix in application code");
+
+            var dekarangerTitles = MainForm.BuildCoverSearchTitles("Special Police Dekaranger");
+            AssertTrue(dekarangerTitles.Contains("Tokusou Sentai Dekaranger"), "Dekaranger should search its provider romanization");
+
+            var dekaranger = MainForm.ExtractTvDbProviderIdsForTest("Special Police Dekaranger", Enumerable.Empty<EpisodeFile>());
+            AssertTrue(!dekaranger.Contains("426108"), "Dekaranger should not be hardcoded as a direct TVDB fix in application code");
+        }
+
+        private static void ProviderMatcherPrefersSpecificSeriesOverFranchiseParent()
+        {
+            var selection = ProviderMatchEvaluator.SelectBest(
+                "Machine Sentai Kiramager",
+                new[]
+                {
+                    new ProviderMatchCandidate
+                    {
+                        Id = "73694",
+                        Title = "Super Sentai Series",
+                        Year = "1975",
+                        IsFranchiseParent = true,
+                        AlternateTitles = new List<string> { "Machine Sentai Kiramager" }
+                    },
+                    new ProviderMatchCandidate
+                    {
+                        Id = "377500",
+                        Title = "Mashin Sentai Kiramager",
+                        Year = "2020",
+                        AlternateTitles = new List<string> { "Machine Sentai Kiramager" }
+                    }
+                });
+
+            AssertTrue(selection.Found, "matching should still select a candidate");
+            AssertEqual("377500", selection.Candidate.Id, "specific series should beat franchise parent when both score equally");
+
+            var parentOnly = ProviderMatchEvaluator.SelectBest(
+                "Tokusou Sentai Dekaranger",
+                new[]
+                {
+                    new ProviderMatchCandidate
+                    {
+                        Id = "73694",
+                        Title = "Super Sentai Series",
+                        Year = "1975",
+                        IsFranchiseParent = true,
+                        AlternateTitles = new List<string> { "Tokusou Sentai Dekaranger" }
+                    },
+                    new ProviderMatchCandidate
+                    {
+                        Id = "426108",
+                        Title = "特捜戦隊デカレンジャー",
+                        Year = "2004"
+                    }
+                });
+
+            AssertTrue(!parentOnly.Found, "franchise parent aliases should not be accepted as automatic cover matches");
+            AssertEqual("73694", parentOnly.BestRejected.Id, "parent alias should be recorded as rejected instead of saved");
+        }
+
+        private static void ProviderMatchEvaluatorSharesFallbackTitleScoring()
+        {
+            AssertEqual(100, ProviderMatchEvaluator.ScoreForTest("Yozakura san Chi no Daisakusen 2nd Season", "Yozakura-san Chi no Daisakusen Season 2"), "season title variants should score as exact after normalization");
+            AssertEqual(85, ProviderMatchEvaluator.ScoreForTest("Kamen Rider Gotchard", "Kamen Rider Gotchard VS Kamen Rider Legend"), "contained provider titles should be reviewable without being automatic cover matches");
+
+            var selection = ProviderMatchEvaluator.SelectBest(
+                "Urusei Yatsura 2nd Season",
+                new[]
+                {
+                    new ProviderMatchCandidate { Id = "1", Title = "Neon Genesis Evangelion" },
+                    new ProviderMatchCandidate { Id = "2", Title = "Urusei Yatsura Season 2" }
+                });
+
+            AssertTrue(selection.Found, "provider evaluator should find the strongest shared fallback candidate");
+            AssertEqual("2", selection.Candidate.Id, "correct provider candidate should win");
+        }
+
+        private static void ProviderMatchEvaluatorIgnoresUnrelatedScriptAliases()
+        {
+            AssertEqual(0, ProviderMatchEvaluator.ScoreForTest("Urusei Yatsura 2nd Season", "אוונגליון 2: (אי) אפשר להתקדם"), "non-Latin aliases should not score against Latin queries through digit leftovers");
+
+            var selection = ProviderMatchEvaluator.SelectBest(
+                "Urusei Yatsura 2nd Season",
+                new[]
+                {
+                    new ProviderMatchCandidate
+                    {
+                        Id = "evangelion",
+                        Title = "Neon Genesis Evangelion",
+                        AlternateTitles = new List<string> { "אוונגליון 2: (אי) אפשר להתקדם" }
+                    },
+                    new ProviderMatchCandidate { Id = "urusei", Title = "Urusei Yatsura Season 2" }
+                });
+
+            AssertTrue(selection.Found, "correct Latin title should still be selectable");
+            AssertEqual("urusei", selection.Candidate.Id, "unrelated non-Latin alias should not pull the match toward Evangelion");
         }
 
         private static void CoverMatchingReferenceYearUsesFileCreationTime()

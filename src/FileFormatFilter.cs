@@ -8,6 +8,13 @@ namespace SameEpisodeDuplicateFinder
 {
     internal sealed class FileFormatFilter
     {
+        public static readonly string[] DefaultDisallowExtensions =
+        {
+            ".ass", ".ssa", ".srt", ".vtt", ".sub", ".idx", ".sup", ".smi", ".sami", ".ttml", ".dfxp", ".sbv", ".stl", ".usf", ".rt", ".aqt", ".jss", ".mpl", ".mpl2", ".pjs", ".psb", ".scc",
+            ".jpg", ".jpeg", ".jpe", ".jfif", ".png", ".apng", ".webp", ".bmp", ".dib", ".gif", ".tif", ".tiff", ".avif", ".heic", ".heif", ".jp2", ".j2k", ".jxl", ".ico", ".svg", ".tga", ".dds", ".psd", ".exr", ".hdr", ".ppm", ".pgm", ".pbm", ".pnm",
+            ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".wma", ".alac", ".ape"
+        };
+
         public bool AllowOnlyListed { get; set; }
         public List<string> Extensions { get; private set; }
 
@@ -56,10 +63,7 @@ namespace SameEpisodeDuplicateFinder
         {
             var filter = new FileFormatFilter();
             filter.AllowOnlyListed = false;
-            filter.Extensions.AddRange(new[]
-            {
-                ".ass", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".wma", ".alac", ".ape"
-            });
+            filter.Extensions.AddRange(DefaultDisallowExtensions);
             return filter;
         }
     }
@@ -105,6 +109,17 @@ namespace SameEpisodeDuplicateFinder
                         {
                             loaded.Extensions.Add(extension);
                         }
+                    }
+                }
+            }
+
+            if (!loaded.AllowOnlyListed)
+            {
+                foreach (var extension in FileFormatFilter.DefaultDisallowExtensions)
+                {
+                    if (!loaded.Extensions.Any(x => string.Equals(x, extension, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        loaded.Extensions.Add(extension);
                     }
                 }
             }

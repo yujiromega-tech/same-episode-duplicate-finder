@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -111,12 +112,18 @@ namespace SameEpisodeDuplicateFinder
 
     internal sealed class TvDbSeriesResult
     {
+        public TvDbSeriesResult()
+        {
+            Diagnostics = new List<string>();
+        }
+
         public string QueryTitle { get; set; }
         public string TvDbId { get; set; }
         public string Title { get; set; }
         public string Year { get; set; }
         public string ImageUrl { get; set; }
         public string Error { get; set; }
+        public List<string> Diagnostics { get; private set; }
 
         public bool Found
         {
@@ -160,6 +167,7 @@ namespace SameEpisodeDuplicateFinder
             if (!settings.HasApiKey)
             {
                 result.Error = "TVDB API key is not configured";
+                result.Diagnostics.Add("TVDB search for \"" + Display(title) + "\": API key is not configured.");
                 return result;
             }
 
@@ -170,23 +178,34 @@ namespace SameEpisodeDuplicateFinder
             if (data == null || data.Count == 0)
             {
                 result.Error = "No TVDB match";
+                result.Diagnostics.Add("TVDB search for \"" + Display(title) + "\": returned zero candidates.");
                 return result;
             }
 
-            var normalizedQuery = NormalizeLookupTitle(title);
-            var first = data.Cast<object>()
-                            .OfType<IDictionary>()
-                            .FirstOrDefault(x => IsTitleMatch(normalizedQuery, FirstString(x, "name", "title", "slug")));
-            if (first == null)
+            var candidates = data.Cast<object>()
+                                 .OfType<IDictionary>()
+                                 .Select(x => new ProviderMatchCandidate
+                                 {
+                                     Id = FirstString(x, "tvdb_id", "id"),
+                                     Title = FirstString(x, "name", "title"),
+                                     Year = FirstString(x, "year"),
+                                     ImageUrl = NormalizeImageUrl(FirstString(x, "image_url", "image")),
+                                     IsFranchiseParent = IsKnownFranchiseParent(FirstString(x, "tvdb_id", "id")),
+                                     AlternateTitles = BuildSearchCandidateTitles(x)
+                                 })
+                                 .ToList();
+            var selected = ProviderMatchEvaluator.SelectBest(title, candidates);
+            result.Diagnostics.AddRange(ProviderMatchEvaluator.BuildCandidateDiagnostics("TVDB", title, candidates, selected));
+            if (!selected.Found)
             {
-                result.Error = "No confident TVDB title match";
+                result.Error = ProviderMatchEvaluator.BuildRejectedMatchMessage("TVDB", selected);
                 return result;
             }
 
-            result.TvDbId = FirstString(first, "tvdb_id", "id");
-            result.Title = FirstString(first, "name", "title");
-            result.Year = FirstString(first, "year");
-            result.ImageUrl = NormalizeImageUrl(FirstString(first, "image_url", "image"));
+            result.TvDbId = selected.Candidate.Id;
+            result.Title = selected.Candidate.Title;
+            result.Year = selected.Candidate.Year;
+            result.ImageUrl = selected.Candidate.ImageUrl;
             if (string.IsNullOrWhiteSpace(result.Title))
             {
                 result.Title = title;
@@ -200,15 +219,72 @@ namespace SameEpisodeDuplicateFinder
             return result;
         }
 
+        public TvDbSeriesResult LookupSeriesById(string tvDbId)
+        {
+            var result = new TvDbSeriesResult { QueryTitle = "tvdb:" + (tvDbId ?? "") };
+            if (!settings.HasApiKey)
+            {
+                result.Error = "TVDB API key is not configured";
+                result.Diagnostics.Add("TVDB direct id " + Display(tvDbId) + ": API key is not configured.");
+                return result;
+            }
+
+            if (!System.Text.RegularExpressions.Regex.IsMatch(tvDbId ?? "", @"^\d+$"))
+            {
+                result.Error = "Invalid TVDB id";
+                result.Diagnostics.Add("TVDB direct id " + Display(tvDbId) + ": invalid id.");
+                return result;
+            }
+
+            var token = EnsureToken();
+            var root = ReadJsonObject(BaseUrl + "/series/" + Uri.EscapeDataString(tvDbId) + "/extended", "GET", null, token);
+            var data = GetObject(root, "data");
+            if (data == null || data.Count == 0)
+            {
+                result.Error = "No TVDB series for id " + tvDbId;
+                result.Diagnostics.Add("TVDB direct id " + Display(tvDbId) + ": returned zero details.");
+                return result;
+            }
+
+            result.TvDbId = FirstString(data, "id", "tvdb_id");
+            result.Title = FirstString(data, "name", "title", "slug");
+            result.Year = FirstString(data, "year");
+            result.ImageUrl = NormalizeImageUrl(FirstString(data, "image", "image_url"));
+            result.Diagnostics.Add("TVDB direct id " + tvDbId + ": title=\"" + Display(result.Title) + "\"; year=" + Display(result.Year) + "; artwork=" + (string.IsNullOrWhiteSpace(result.ImageUrl) ? "no" : "yes"));
+            if (string.IsNullOrWhiteSpace(result.ImageUrl))
+            {
+                result.ImageUrl = NormalizeImageUrl(FirstArtworkImage(data));
+                if (!string.IsNullOrWhiteSpace(result.ImageUrl))
+                {
+                    result.Diagnostics.Add("TVDB direct id " + tvDbId + ": artwork found from extended artwork list.");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(result.TvDbId))
+            {
+                result.Error = "TVDB series id was not found";
+            }
+
+            return result;
+        }
+
         public bool TryDownloadSeriesCover(string title, string targetPath, out string message)
         {
+            List<string> diagnostics;
+            return TryDownloadSeriesCover(title, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesCover(string title, string targetPath, out string message, out List<string> diagnostics)
+        {
             message = "";
+            diagnostics = new List<string>();
             if (File.Exists(targetPath))
             {
                 return true;
             }
 
             var result = LookupSeries(title);
+            diagnostics = result.Diagnostics;
             if (!result.Found)
             {
                 message = result.Error;
@@ -230,6 +306,51 @@ namespace SameEpisodeDuplicateFinder
 
             message = result.Title;
             return true;
+        }
+
+        public bool TryDownloadSeriesCoverById(string tvDbId, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesCoverById(tvDbId, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesCoverById(string tvDbId, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeriesById(tvDbId);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.ImageUrl))
+            {
+                message = "TVDB match did not include cover art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.ImageUrl, targetPath);
+            }
+
+            message = result.Title;
+            return true;
+        }
+
+        private static string Display(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
         }
 
         private string EnsureToken()
@@ -307,11 +428,33 @@ namespace SameEpisodeDuplicateFinder
 
         private static ArrayList GetArray(IDictionary source, string key)
         {
-            return source != null && source.Contains(key) ? source[key] as ArrayList : null;
+            if (source == null || !source.Contains(key) || source[key] == null)
+            {
+                return null;
+            }
+
+            var arrayList = source[key] as ArrayList;
+            if (arrayList != null)
+            {
+                return arrayList;
+            }
+
+            var objectArray = source[key] as object[];
+            if (objectArray != null)
+            {
+                return new ArrayList(objectArray);
+            }
+
+            return null;
         }
 
         private static string FirstString(IDictionary source, params string[] keys)
         {
+            if (source == null)
+            {
+                return "";
+            }
+
             foreach (var key in keys)
             {
                 if (source.Contains(key) && source[key] != null)
@@ -323,33 +466,55 @@ namespace SameEpisodeDuplicateFinder
             return "";
         }
 
-        private static bool IsTitleMatch(string normalizedQuery, string candidateTitle)
+        private static string FirstArtworkImage(IDictionary source)
         {
-            return !string.IsNullOrWhiteSpace(normalizedQuery) &&
-                   string.Equals(normalizedQuery, NormalizeLookupTitle(candidateTitle), StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string NormalizeLookupTitle(string title)
-        {
-            if (string.IsNullOrWhiteSpace(title))
+            var artworks = GetArray(source, "artworks");
+            if (artworks == null || artworks.Count == 0)
             {
                 return "";
             }
 
-            var builder = new StringBuilder();
-            foreach (var c in title.ToLowerInvariant())
+            var first = artworks.Cast<object>()
+                                .OfType<IDictionary>()
+                                .OrderByDescending(x => FirstString(x, "type", "typeName").IndexOf("poster", StringComparison.OrdinalIgnoreCase) >= 0)
+                                .ThenByDescending(x => FirstString(x, "language").IndexOf("eng", StringComparison.OrdinalIgnoreCase) >= 0)
+                                .FirstOrDefault();
+            return FirstString(first, "image", "thumbnail", "image_url");
+        }
+
+        private static List<string> BuildSearchCandidateTitles(IDictionary source)
+        {
+            var titles = new List<string>
             {
-                if (char.IsLetterOrDigit(c))
+                FirstString(source, "name"),
+                FirstString(source, "title"),
+                FirstString(source, "slug")
+            };
+
+            var aliases = GetArray(source, "aliases");
+            if (aliases != null)
+            {
+                foreach (var alias in aliases)
                 {
-                    builder.Append(c);
-                }
-                else if (builder.Length > 0 && builder[builder.Length - 1] != ' ')
-                {
-                    builder.Append(' ');
+                    var aliasObject = alias as IDictionary;
+                    if (aliasObject != null)
+                    {
+                        titles.Add(FirstString(aliasObject, "name", "title"));
+                    }
+                    else if (alias != null)
+                    {
+                        titles.Add(Convert.ToString(alias));
+                    }
                 }
             }
 
-            return builder.ToString().Trim();
+            return titles.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static bool IsKnownFranchiseParent(string tvDbId)
+        {
+            return string.Equals(tvDbId, "73694", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(tvDbId, "74096", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string NormalizeImageUrl(string value)

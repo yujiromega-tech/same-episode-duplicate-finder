@@ -2,11 +2,11 @@
 
 This roadmap starts from the current WinForms production/test app. WinForms remains the active application until the core workflow code is extracted enough to support an Avalonia shell without duplicating business logic.
 
-## Current Position: Phase 2.7 Stabilization and Shell Polish
+## Current Position: Phase 2.8 Duplicate Workflow Refinement
 
 - Keep the current WinForms shell.
-- Fix visible clipping, panel sizing, stale text, and inspector usability issues.
-- Keep the series rail fast and list-based; cover art loads in the selected-series header and inspector.
+- Refine the real duplicate review workflow before broader action-planner work.
+- Improve duplicate table readability, candidate filtering, and Ready to Remove safety visibility.
 - Preserve duplicate review, missing episodes, episode search, selected RSS, metadata, cover lookup, monitoring, delete, and move workflows.
 - Keep destructive actions review-first and explicit.
 
@@ -29,6 +29,19 @@ This roadmap starts from the current WinForms production/test app. WinForms rema
 - Audit visible strings for tester-facing roadmap language.
 - Identify large repeated form patterns for later extraction rather than risky inline rewrites.
 - Keep the build and tests green after each cleanup pass.
+
+## Phase 2.7C: Metadata Match Stabilization
+
+- Keep the current provider clients, but harden the matching layer before deeper workflow changes.
+- Fold in the useful HAMA/Anime-Lists concepts without copying Plex-agent code:
+  - cache AniDB title data locally where safe
+  - use Anime-Lists/ScudLee AniDB-to-TVDB/TMDB mappings for anime identity bridging
+  - prefer explicit provider IDs from folder/file hints or sidecar `.id` files before fuzzy search
+  - add language-aware title priority, favoring English, romaji, and Japanese while penalizing unrelated aliases
+  - report missing mappings, missing artwork, rejected weak matches, and franchise-parent matches in Activity/diagnostics
+- Keep AniDB request volume low by using local/cache-first matching where practical.
+- Do not auto-write artwork unless the selected provider match is high confidence.
+- Treat failed artwork after a strong metadata match as a visible artwork failure, not a silent success.
 
 ## Phase 2.8: Duplicate Workflow Refinement
 

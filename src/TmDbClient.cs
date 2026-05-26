@@ -1,10 +1,12 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
 namespace SameEpisodeDuplicateFinder
@@ -95,12 +97,18 @@ namespace SameEpisodeDuplicateFinder
 
     internal sealed class TmDbSeriesResult
     {
+        public TmDbSeriesResult()
+        {
+            Diagnostics = new List<string>();
+        }
+
         public string QueryTitle { get; set; }
         public string TmDbId { get; set; }
         public string Title { get; set; }
         public string Year { get; set; }
         public string PosterUrl { get; set; }
         public string Error { get; set; }
+        public List<string> Diagnostics { get; private set; }
 
         public bool Found
         {
@@ -144,6 +152,7 @@ namespace SameEpisodeDuplicateFinder
             if (!settings.HasReadAccessToken)
             {
                 result.Error = "TMDB read access token is not configured";
+                result.Diagnostics.Add("TMDB search for \"" + Display(title) + "\": read access token is not configured.");
                 return result;
             }
 
@@ -153,23 +162,37 @@ namespace SameEpisodeDuplicateFinder
             if (data == null || data.Count == 0)
             {
                 result.Error = "No TMDB match";
+                result.Diagnostics.Add("TMDB search for \"" + Display(title) + "\": returned zero candidates.");
                 return result;
             }
 
-            var normalizedQuery = NormalizeLookupTitle(title);
-            var first = data.Cast<object>()
-                            .OfType<IDictionary>()
-                            .FirstOrDefault(x => IsTitleMatch(normalizedQuery, FirstString(x, "name", "original_name")));
-            if (first == null)
+            var candidates = data.Cast<object>()
+                                 .OfType<IDictionary>()
+                                 .Select(x => new ProviderMatchCandidate
+                                 {
+                                     Id = FirstString(x, "id"),
+                                     Title = FirstString(x, "name", "original_name"),
+                                     Year = ExtractYear(FirstString(x, "first_air_date")),
+                                     ImageUrl = NormalizePosterUrl(FirstString(x, "poster_path")),
+                                     AlternateTitles = new List<string>
+                                     {
+                                         FirstString(x, "name"),
+                                         FirstString(x, "original_name")
+                                     }
+                                 })
+                                 .ToList();
+            var selected = ProviderMatchEvaluator.SelectBest(title, candidates);
+            result.Diagnostics.AddRange(ProviderMatchEvaluator.BuildCandidateDiagnostics("TMDB", title, candidates, selected));
+            if (!selected.Found)
             {
-                result.Error = "No confident TMDB title match";
+                result.Error = ProviderMatchEvaluator.BuildRejectedMatchMessage("TMDB", selected);
                 return result;
             }
 
-            result.TmDbId = FirstString(first, "id");
-            result.Title = FirstString(first, "name", "original_name");
-            result.Year = ExtractYear(FirstString(first, "first_air_date"));
-            result.PosterUrl = NormalizePosterUrl(FirstString(first, "poster_path"));
+            result.TmDbId = selected.Candidate.Id;
+            result.Title = selected.Candidate.Title;
+            result.Year = selected.Candidate.Year;
+            result.PosterUrl = selected.Candidate.ImageUrl;
             if (string.IsNullOrWhiteSpace(result.Title))
             {
                 result.Title = title;
@@ -179,19 +202,92 @@ namespace SameEpisodeDuplicateFinder
             {
                 result.Error = "TMDB search result did not include an id";
             }
+            else if (string.IsNullOrWhiteSpace(result.PosterUrl))
+            {
+                result.PosterUrl = NormalizePosterUrl(LookupPosterPathFromImages("tv", result.TmDbId));
+            }
+
+            return result;
+        }
+
+        public TmDbSeriesResult LookupSeriesById(string tmDbId)
+        {
+            var result = new TmDbSeriesResult { QueryTitle = "tmdb:" + (tmDbId ?? "") };
+            if (!settings.HasReadAccessToken)
+            {
+                result.Error = "TMDB read access token is not configured";
+                result.Diagnostics.Add("TMDB direct id " + Display(tmDbId) + ": read access token is not configured.");
+                return result;
+            }
+
+            if (!Regex.IsMatch(tmDbId ?? "", @"^\d+$"))
+            {
+                result.Error = "Invalid TMDB id";
+                result.Diagnostics.Add("TMDB direct id " + Display(tmDbId) + ": invalid id.");
+                return result;
+            }
+
+            string lookupError;
+            var matchedMediaType = "tv";
+            var root = ReadDetailsJsonById(matchedMediaType, tmDbId, out lookupError);
+            if (root == null)
+            {
+                matchedMediaType = "movie";
+                root = ReadDetailsJsonById(matchedMediaType, tmDbId, out lookupError);
+            }
+
+            result.Error = lookupError;
+
+            if (root == null || root.Count == 0)
+            {
+                if (string.IsNullOrWhiteSpace(result.Error))
+                {
+                    result.Error = "No TMDB TV or movie match for id " + tmDbId;
+                }
+
+                result.Diagnostics.Add("TMDB direct id " + Display(tmDbId) + ": returned zero details.");
+                return result;
+            }
+
+            result.TmDbId = FirstString(root, "id");
+            result.Title = FirstString(root, "name", "title", "original_name", "original_title");
+            result.Year = ExtractYear(FirstString(root, "first_air_date", "release_date"));
+            result.PosterUrl = NormalizePosterUrl(FirstString(root, "poster_path"));
+            result.Diagnostics.Add("TMDB direct id " + tmDbId + ": title=\"" + Display(result.Title) + "\"; year=" + Display(result.Year) + "; artwork=" + (string.IsNullOrWhiteSpace(result.PosterUrl) ? "no" : "yes"));
+            if (string.IsNullOrWhiteSpace(result.PosterUrl))
+            {
+                result.PosterUrl = NormalizePosterUrl(LookupPosterPathFromImages(matchedMediaType, result.TmDbId));
+                if (!string.IsNullOrWhiteSpace(result.PosterUrl))
+                {
+                    result.Diagnostics.Add("TMDB direct id " + tmDbId + ": poster found from images endpoint.");
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(result.TmDbId))
+            {
+                result.Error = "TMDB series id was not found";
+            }
 
             return result;
         }
 
         public bool TryDownloadSeriesCover(string title, string targetPath, out string message)
         {
+            List<string> diagnostics;
+            return TryDownloadSeriesCover(title, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesCover(string title, string targetPath, out string message, out List<string> diagnostics)
+        {
             message = "";
+            diagnostics = new List<string>();
             if (File.Exists(targetPath))
             {
                 return true;
             }
 
             var result = LookupSeries(title);
+            diagnostics = result.Diagnostics;
             if (!result.Found)
             {
                 message = result.Error;
@@ -213,6 +309,97 @@ namespace SameEpisodeDuplicateFinder
 
             message = result.Title;
             return true;
+        }
+
+        public bool TryDownloadSeriesCoverById(string tmDbId, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesCoverById(tmDbId, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesCoverById(string tmDbId, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeriesById(tmDbId);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.PosterUrl))
+            {
+                message = "TMDB match did not include poster art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.PosterUrl, targetPath);
+            }
+
+            message = string.IsNullOrWhiteSpace(result.Title) ? "tmdb:" + tmDbId : result.Title;
+            return true;
+        }
+
+        private static string Display(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
+        }
+
+        private IDictionary ReadDetailsJsonById(string mediaType, string tmDbId, out string error)
+        {
+            error = "";
+            try
+            {
+                var url = BaseUrl + "/" + mediaType + "/" + Uri.EscapeDataString(tmDbId) + "?language=en-US";
+                return ReadJsonObject(url);
+            }
+            catch (Exception ex)
+            {
+                error = "TMDB " + mediaType + " id " + tmDbId + ": " + ex.Message;
+                return null;
+            }
+        }
+
+        private string LookupPosterPathFromImages(string mediaType, string tmDbId)
+        {
+            if (string.IsNullOrWhiteSpace(mediaType) || string.IsNullOrWhiteSpace(tmDbId))
+            {
+                return "";
+            }
+
+            try
+            {
+                var url = BaseUrl + "/" + mediaType + "/" + Uri.EscapeDataString(tmDbId) + "/images?include_image_language=en,null,ja";
+                var root = ReadJsonObject(url);
+                var posters = GetArray(root, "posters");
+                if (posters == null || posters.Count == 0)
+                {
+                    return "";
+                }
+
+                var preferred = posters.Cast<object>()
+                                       .OfType<IDictionary>()
+                                       .OrderByDescending(x => PreferredPosterLanguageRank(FirstString(x, "iso_639_1")))
+                                       .ThenByDescending(x => FirstNumber(x, "vote_average"))
+                                       .ThenByDescending(x => FirstNumber(x, "vote_count"))
+                                       .FirstOrDefault();
+                return preferred == null ? "" : FirstString(preferred, "file_path");
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         private IDictionary ReadJsonObject(string url)
@@ -249,7 +436,24 @@ namespace SameEpisodeDuplicateFinder
 
         private static ArrayList GetArray(IDictionary source, string key)
         {
-            return source != null && source.Contains(key) ? source[key] as ArrayList : null;
+            if (source == null || !source.Contains(key) || source[key] == null)
+            {
+                return null;
+            }
+
+            var arrayList = source[key] as ArrayList;
+            if (arrayList != null)
+            {
+                return arrayList;
+            }
+
+            var objectArray = source[key] as object[];
+            if (objectArray != null)
+            {
+                return new ArrayList(objectArray);
+            }
+
+            return null;
         }
 
         private static string FirstString(IDictionary source, params string[] keys)
@@ -265,33 +469,35 @@ namespace SameEpisodeDuplicateFinder
             return "";
         }
 
-        private static bool IsTitleMatch(string normalizedQuery, string candidateTitle)
+        private static double FirstNumber(IDictionary source, string key)
         {
-            return !string.IsNullOrWhiteSpace(normalizedQuery) &&
-                   string.Equals(normalizedQuery, NormalizeLookupTitle(candidateTitle), StringComparison.OrdinalIgnoreCase);
+            if (source == null || !source.Contains(key) || source[key] == null)
+            {
+                return 0;
+            }
+
+            double value;
+            return double.TryParse(Convert.ToString(source[key]), out value) ? value : 0;
         }
 
-        private static string NormalizeLookupTitle(string title)
+        private static int PreferredPosterLanguageRank(string language)
         {
-            if (string.IsNullOrWhiteSpace(title))
+            if (string.Equals(language, "en", StringComparison.OrdinalIgnoreCase))
             {
-                return "";
+                return 3;
             }
 
-            var builder = new StringBuilder();
-            foreach (var c in title.ToLowerInvariant())
+            if (string.IsNullOrWhiteSpace(language))
             {
-                if (char.IsLetterOrDigit(c))
-                {
-                    builder.Append(c);
-                }
-                else if (builder.Length > 0 && builder[builder.Length - 1] != ' ')
-                {
-                    builder.Append(' ');
-                }
+                return 2;
             }
 
-            return builder.ToString().Trim();
+            if (string.Equals(language, "ja", StringComparison.OrdinalIgnoreCase))
+            {
+                return 1;
+            }
+
+            return 0;
         }
 
         private static string NormalizePosterUrl(string value)
