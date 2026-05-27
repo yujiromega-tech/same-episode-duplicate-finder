@@ -107,6 +107,7 @@ namespace SameEpisodeDuplicateFinder
         public string Title { get; set; }
         public string Year { get; set; }
         public string PosterUrl { get; set; }
+        public string BackdropUrl { get; set; }
         public string Error { get; set; }
         public List<string> Diagnostics { get; private set; }
 
@@ -174,6 +175,7 @@ namespace SameEpisodeDuplicateFinder
                                      Title = FirstString(x, "name", "original_name"),
                                      Year = ExtractYear(FirstString(x, "first_air_date")),
                                      ImageUrl = NormalizePosterUrl(FirstString(x, "poster_path")),
+                                     BackdropUrl = NormalizePosterUrl(FirstString(x, "backdrop_path")),
                                      AlternateTitles = new List<string>
                                      {
                                          FirstString(x, "name"),
@@ -193,6 +195,7 @@ namespace SameEpisodeDuplicateFinder
             result.Title = selected.Candidate.Title;
             result.Year = selected.Candidate.Year;
             result.PosterUrl = selected.Candidate.ImageUrl;
+            result.BackdropUrl = selected.Candidate.BackdropUrl;
             if (string.IsNullOrWhiteSpace(result.Title))
             {
                 result.Title = title;
@@ -253,6 +256,7 @@ namespace SameEpisodeDuplicateFinder
             result.Title = FirstString(root, "name", "title", "original_name", "original_title");
             result.Year = ExtractYear(FirstString(root, "first_air_date", "release_date"));
             result.PosterUrl = NormalizePosterUrl(FirstString(root, "poster_path"));
+            result.BackdropUrl = NormalizePosterUrl(FirstString(root, "backdrop_path"));
             result.Diagnostics.Add("TMDB direct id " + tmDbId + ": title=\"" + Display(result.Title) + "\"; year=" + Display(result.Year) + "; artwork=" + (string.IsNullOrWhiteSpace(result.PosterUrl) ? "no" : "yes"));
             if (string.IsNullOrWhiteSpace(result.PosterUrl))
             {
@@ -269,6 +273,100 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return result;
+        }
+
+        public bool TryDownloadSeriesBackdrop(string title, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesBackdrop(title, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesBackdrop(string title, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeries(title);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl) && !string.IsNullOrWhiteSpace(result.TmDbId))
+            {
+                result.BackdropUrl = NormalizePosterUrl(LookupBackdropPathFromImages("tv", result.TmDbId));
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl))
+            {
+                message = "TMDB match did not include backdrop art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.BackdropUrl, targetPath);
+            }
+
+            message = result.Title;
+            return true;
+        }
+
+        public bool TryDownloadSeriesBackdropById(string tmDbId, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesBackdropById(tmDbId, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesBackdropById(string tmDbId, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeriesById(tmDbId);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl) && !string.IsNullOrWhiteSpace(result.TmDbId))
+            {
+                result.BackdropUrl = NormalizePosterUrl(LookupBackdropPathFromImages("tv", result.TmDbId));
+                if (string.IsNullOrWhiteSpace(result.BackdropUrl))
+                {
+                    result.BackdropUrl = NormalizePosterUrl(LookupBackdropPathFromImages("movie", result.TmDbId));
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl))
+            {
+                message = "TMDB match did not include backdrop art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.BackdropUrl, targetPath);
+            }
+
+            message = string.IsNullOrWhiteSpace(result.Title) ? "tmdb:" + tmDbId : result.Title;
+            return true;
         }
 
         public bool TryDownloadSeriesCover(string title, string targetPath, out string message)
@@ -394,6 +492,37 @@ namespace SameEpisodeDuplicateFinder
                                        .ThenByDescending(x => FirstNumber(x, "vote_average"))
                                        .ThenByDescending(x => FirstNumber(x, "vote_count"))
                                        .FirstOrDefault();
+                return preferred == null ? "" : FirstString(preferred, "file_path");
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private string LookupBackdropPathFromImages(string mediaType, string tmDbId)
+        {
+            if (string.IsNullOrWhiteSpace(mediaType) || string.IsNullOrWhiteSpace(tmDbId))
+            {
+                return "";
+            }
+
+            try
+            {
+                var url = BaseUrl + "/" + mediaType + "/" + Uri.EscapeDataString(tmDbId) + "/images?include_image_language=en,null,ja";
+                var root = ReadJsonObject(url);
+                var backdrops = GetArray(root, "backdrops");
+                if (backdrops == null || backdrops.Count == 0)
+                {
+                    return "";
+                }
+
+                var preferred = backdrops.Cast<object>()
+                                         .OfType<IDictionary>()
+                                         .OrderByDescending(x => PreferredPosterLanguageRank(FirstString(x, "iso_639_1")))
+                                         .ThenByDescending(x => FirstNumber(x, "vote_average"))
+                                         .ThenByDescending(x => FirstNumber(x, "vote_count"))
+                                         .FirstOrDefault();
                 return preferred == null ? "" : FirstString(preferred, "file_path");
             }
             catch

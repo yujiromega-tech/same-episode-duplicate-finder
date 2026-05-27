@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -27,6 +28,7 @@ namespace SameEpisodeDuplicateFinder.Tests
             Run("cover search titles handle anime part suffixes", CoverSearchTitlesHandleAnimePartSuffixes);
             Run("cover fallback extracts TMDB folder ids", CoverFallbackExtractsTmDbFolderIds);
             Run("cover fallback extracts TVDB folder ids and known matches", CoverFallbackExtractsTvDbFolderIdsAndKnownMatches);
+            Run("TVDB backdrop selector rejects poster artwork", TvDbBackdropSelectorRejectsPosterArtwork);
             Run("series identity resolver supports cross genre provider access", SeriesIdentityResolverSupportsCrossGenreProviderAccess);
             Run("provider matcher prefers specific series over franchise parent", ProviderMatcherPrefersSpecificSeriesOverFranchiseParent);
             Run("provider match evaluator shares fallback title scoring", ProviderMatchEvaluatorSharesFallbackTitleScoring);
@@ -799,6 +801,31 @@ namespace SameEpisodeDuplicateFinder.Tests
             AssertTrue(actions.Any(x => x.Category == LibraryActionCategory.Delete && x.TargetPath.EndsWith("[720p].mkv", StringComparison.OrdinalIgnoreCase)), "lower quality duplicate should be planned for delete review");
             AssertTrue(actions.Any(x => x.Category == LibraryActionCategory.SearchMissing && x.Reason.Contains("02")), "missing episode search should be planned");
             AssertEqual(LibraryActionCategory.FetchCover, actions[0].Category, "cover should be planned before deleting when no cover exists");
+        }
+
+        private static void TvDbBackdropSelectorRejectsPosterArtwork()
+        {
+            var poster = new Dictionary<string, object>();
+            poster["typeName"] = "Poster";
+            poster["image"] = "/banners/posters/poster.jpg";
+            poster["width"] = 680;
+            poster["height"] = 1000;
+
+            var background = new Dictionary<string, object>();
+            background["typeName"] = "Background";
+            background["image"] = "/banners/fanart/background.jpg";
+            background["language"] = "eng";
+            background["width"] = 1920;
+            background["height"] = 1080;
+
+            var payload = new Dictionary<string, object>();
+            payload["artworks"] = new ArrayList { poster, background };
+
+            AssertEqual("/banners/fanart/background.jpg", TvDbClient.SelectBackdropImageForTest(payload), "background art should be selected over poster art");
+
+            payload["artworks"] = new ArrayList { poster };
+
+            AssertEqual("", TvDbClient.SelectBackdropImageForTest(payload), "poster-only artwork should not be used as a backdrop");
         }
 
         private static ScannedFile CreateScannedFile(string root, string relativeFolder, string name, long sizeBytes)

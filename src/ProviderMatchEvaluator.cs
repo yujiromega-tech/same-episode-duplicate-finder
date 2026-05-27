@@ -12,6 +12,7 @@ namespace SameEpisodeDuplicateFinder
         public string Title { get; set; }
         public string Year { get; set; }
         public string ImageUrl { get; set; }
+        public string BackdropUrl { get; set; }
         public bool IsFranchiseParent { get; set; }
         public List<string> AlternateTitles { get; set; }
 

@@ -122,6 +122,7 @@ namespace SameEpisodeDuplicateFinder
         public string Title { get; set; }
         public string Year { get; set; }
         public string ImageUrl { get; set; }
+        public string BackdropUrl { get; set; }
         public string Error { get; set; }
         public List<string> Diagnostics { get; private set; }
 
@@ -250,6 +251,7 @@ namespace SameEpisodeDuplicateFinder
             result.Title = FirstString(data, "name", "title", "slug");
             result.Year = FirstString(data, "year");
             result.ImageUrl = NormalizeImageUrl(FirstString(data, "image", "image_url"));
+            result.BackdropUrl = NormalizeImageUrl(FirstBackdropImage(data, result.Diagnostics));
             result.Diagnostics.Add("TVDB direct id " + tvDbId + ": title=\"" + Display(result.Title) + "\"; year=" + Display(result.Year) + "; artwork=" + (string.IsNullOrWhiteSpace(result.ImageUrl) ? "no" : "yes"));
             if (string.IsNullOrWhiteSpace(result.ImageUrl))
             {
@@ -266,6 +268,92 @@ namespace SameEpisodeDuplicateFinder
             }
 
             return result;
+        }
+
+        public bool TryDownloadSeriesBackdrop(string title, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesBackdrop(title, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesBackdrop(string title, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeries(title);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl) && !string.IsNullOrWhiteSpace(result.TvDbId))
+            {
+                result = LookupSeriesById(result.TvDbId);
+                diagnostics.AddRange(result.Diagnostics);
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl))
+            {
+                message = "TVDB match did not include backdrop art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.BackdropUrl, targetPath);
+            }
+
+            message = result.Title;
+            return true;
+        }
+
+        public bool TryDownloadSeriesBackdropById(string tvDbId, string targetPath, out string message)
+        {
+            List<string> diagnostics;
+            return TryDownloadSeriesBackdropById(tvDbId, targetPath, out message, out diagnostics);
+        }
+
+        public bool TryDownloadSeriesBackdropById(string tvDbId, string targetPath, out string message, out List<string> diagnostics)
+        {
+            message = "";
+            diagnostics = new List<string>();
+            if (File.Exists(targetPath))
+            {
+                return true;
+            }
+
+            var result = LookupSeriesById(tvDbId);
+            diagnostics = result.Diagnostics;
+            if (!result.Found)
+            {
+                message = result.Error;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(result.BackdropUrl))
+            {
+                message = "TVDB match did not include backdrop art";
+                return false;
+            }
+
+            using (var webClient = new HttpTimeoutWebClient())
+            {
+                HttpNetworkSettings.Apply();
+                webClient.Headers[HttpRequestHeader.UserAgent] = "SameEpisodeDuplicateFinder";
+                webClient.DownloadFile(result.BackdropUrl, targetPath);
+            }
+
+            message = result.Title;
+            return true;
         }
 
         public bool TryDownloadSeriesCover(string title, string targetPath, out string message)
@@ -480,6 +568,165 @@ namespace SameEpisodeDuplicateFinder
                                 .ThenByDescending(x => FirstString(x, "language").IndexOf("eng", StringComparison.OrdinalIgnoreCase) >= 0)
                                 .FirstOrDefault();
             return FirstString(first, "image", "thumbnail", "image_url");
+        }
+
+        private static string FirstBackdropImage(IDictionary source)
+        {
+            return FirstBackdropImage(source, null);
+        }
+
+        internal static string SelectBackdropImageForTest(IDictionary source)
+        {
+            return FirstBackdropImage(source, null);
+        }
+
+        private static string FirstBackdropImage(IDictionary source, IList<string> diagnostics)
+        {
+            var artworks = GetArray(source, "artworks");
+            if (artworks == null || artworks.Count == 0)
+            {
+                if (diagnostics != null)
+                {
+                    diagnostics.Add("TVDB extended artwork list did not include any artwork entries.");
+                }
+
+                return "";
+            }
+
+            var candidates = artworks.Cast<object>()
+                                .OfType<IDictionary>()
+                                .Select(x => new
+                                {
+                                    Artwork = x,
+                                    Rank = ArtworkTypeRank(x),
+                                    Type = ArtworkTypeText(x),
+                                    Image = FirstString(x, "image", "thumbnail", "image_url")
+                                })
+                                .Where(x => x.Rank > 0 && !string.IsNullOrWhiteSpace(x.Image))
+                                .ToList();
+            var first = candidates
+                                .OrderByDescending(x => x.Rank)
+                                .ThenByDescending(x => FirstString(x.Artwork, "language").IndexOf("eng", StringComparison.OrdinalIgnoreCase) >= 0)
+                                .FirstOrDefault();
+            if (first == null)
+            {
+                if (diagnostics != null)
+                {
+                    diagnostics.Add("TVDB extended artwork list did not include usable landscape backdrop art; poster/cover artwork was ignored.");
+                }
+
+                return "";
+            }
+
+            if (diagnostics != null)
+            {
+                diagnostics.Add("TVDB selected backdrop artwork type " + Display(first.Type) + ".");
+            }
+
+            return first.Image;
+        }
+
+        private static int ArtworkTypeRank(IDictionary artwork)
+        {
+            var value = ArtworkTypeText(artwork);
+            var rank = ArtworkTypeRank(value);
+            if (rank > 0)
+            {
+                return rank;
+            }
+
+            return IsLandscapeArtwork(artwork) ? 1 : 0;
+        }
+
+        private static int ArtworkTypeRank(string value)
+        {
+            value = value ?? "";
+            if (value.IndexOf("background", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                value.IndexOf("backdrop", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                value.IndexOf("fanart", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 4;
+            }
+
+            if (value.IndexOf("banner", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return 3;
+            }
+
+            return 0;
+        }
+
+        private static string ArtworkTypeText(IDictionary artwork)
+        {
+            if (artwork == null)
+            {
+                return "";
+            }
+
+            foreach (var key in new[] { "type", "typeName", "artworkType", "artworkTypeName", "artwork_type" })
+            {
+                if (!artwork.Contains(key) || artwork[key] == null)
+                {
+                    continue;
+                }
+
+                var nested = artwork[key] as IDictionary;
+                if (nested != null)
+                {
+                    var nestedValue = FirstString(nested, "name", "type", "slug");
+                    if (!string.IsNullOrWhiteSpace(nestedValue))
+                    {
+                        return nestedValue;
+                    }
+                }
+
+                var value = Convert.ToString(artwork[key]);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return "";
+        }
+
+        private static bool IsLandscapeArtwork(IDictionary artwork)
+        {
+            int width;
+            int height;
+            if (!TryGetInt(artwork, out width, "width", "imageWidth", "thumbnailWidth") ||
+                !TryGetInt(artwork, out height, "height", "imageHeight", "thumbnailHeight") ||
+                width <= 0 ||
+                height <= 0)
+            {
+                return false;
+            }
+
+            return width >= height * 1.4;
+        }
+
+        private static bool TryGetInt(IDictionary source, out int value, params string[] keys)
+        {
+            value = 0;
+            if (source == null)
+            {
+                return false;
+            }
+
+            foreach (var key in keys)
+            {
+                if (!source.Contains(key) || source[key] == null)
+                {
+                    continue;
+                }
+
+                if (int.TryParse(Convert.ToString(source[key]), out value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static List<string> BuildSearchCandidateTitles(IDictionary source)
