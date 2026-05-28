@@ -2,7 +2,7 @@
 
 Same Episode Duplicate Finder is a Windows desktop tool for reviewing duplicate anime or episodic media files. It scans a folder, groups files that look like the same series episode, recommends likely keep/delete choices, and helps move or recycle files after manual review.
 
-Current version: `0.0.3`.
+Current version: `0.0.4`.
 
 The app is designed for large, messy libraries where duplicate episodes may differ by release group, size, path, naming style, version tag, or AniDB metadata.
 
@@ -19,6 +19,8 @@ The app is designed for large, messy libraries where duplicate episodes may diff
 - Saves and reloads the last scan cache.
 - Supports configurable file extension filters.
 - Includes optional AniDB lookup, AniDB title matching, and missing cover workflow.
+- Supports TVDB/TMDB fallback metadata plus series backdrop artwork when API keys are configured.
+- Provides missing-episode, episode-search, selected RSS, and action-plan preview workflows.
 - Includes optional FileBot integration for external rename/move workflows.
 - Handles long paths in selected delete operations.
 
@@ -83,7 +85,7 @@ The tests cover filename parsing, duplicate-group counting, file format filterin
 3. Add one or more media folders.
 4. Review duplicate candidates in the grid.
 5. Use the series panel, search, sorting, and recommendation fields to inspect groups.
-6. Optionally run **Tools > Review Suggested Actions...**.
+6. Optionally run **Tools > Action Plan Preview...**.
 7. Mark only files you are comfortable removing.
 8. Review **Ready to Remove** before pressing Delete.
 
@@ -95,7 +97,10 @@ The app may create local files next to the executable:
 - `SameEpisodeDuplicateFinder.fileformats` for scan extension filters.
 - `SameEpisodeDuplicateFinder.columns` for visible column layout.
 - `SameEpisodeDuplicateFinder.automark` for auto-mark threshold.
+- `SameEpisodeDuplicateFinder.tvdb` and `SameEpisodeDuplicateFinder.tmdb` for local provider API settings.
 - `SameEpisodeDuplicateFinder.errors.log` for local error details.
+- `SameEpisodeDuplicateFinder.diagnostics.log` for scan, provider, artwork, and workflow diagnostics.
+- `SameEpisodeDuplicateFinder.selected-results.rss` for the selected RSS workflow.
 - `SameEpisodeDuplicateFinder.last-delete-dry-run.csv` for the last confirmed delete preview.
 - `SameEpisodeDuplicateFinder.last-move-dry-run.csv` for the last confirmed move preview.
 - `SameEpisodeDuplicateFinder.last-move-report.csv` for the last completed move result.
@@ -117,6 +122,10 @@ TVDB and TMDB can be configured as fallback metadata and cover providers when An
 - The automated test suite is focused on core parsing, grouping, scoring, action reports, and target path helpers; UI workflows still need broader coverage.
 - Duplicate recommendations are heuristic and should be manually reviewed.
 - External services and tools, including AniDB and FileBot, may fail or be rate-limited independently of this app.
+- TVDB/TMDB fallback metadata and artwork require local API settings.
+- The selected RSS feed is served locally only while the WinForms app is running.
+
+See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) for the Phase 2.10 release-candidate notes.
 
 ## Roadmap
 
@@ -134,6 +143,16 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the phase rollout.
 No open-source license has been selected yet. Add a license before publishing publicly if others should be allowed to use, modify, or redistribute the code.
 
 ## Changelog
+
+### 0.0.4
+
+- Added Phase 2.10 WinForms baseline polish for the dark shell, selected-series header, scan/sidebar layout, right inspector, and action buttons.
+- Added non-destructive Action Plan Preview across duplicates, missing artwork, missing episodes, and selected RSS rows.
+- Added TVDB/TMDB fallback metadata and backdrop artwork support while keeping AniDB first for cover art.
+- Saved cover and backdrop artwork using series-specific filenames.
+- Improved provider matching diagnostics and generic matching safeguards for anime, tokusatsu, cartoons, sitcoms, and TV libraries.
+- Added selected RSS workflow support and full-season search fallback handling.
+- Added tests for TVDB backdrop selection and provider matching behavior.
 
 ### 0.0.3
 

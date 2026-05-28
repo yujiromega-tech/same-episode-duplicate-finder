@@ -29,11 +29,13 @@ Windows duplicate-review tool for anime and episodic media libraries, with scan 
 
 Initial published version: `0.0.1`.
 
-Use the Git tag:
+Use Git tags such as:
 
 ```text
-v0.0.1
+v0.0.4
 ```
+
+The Phase 2.10 WinForms baseline is `0.0.4`.
 
 ## First Release Notes
 
@@ -58,4 +60,14 @@ git commit -m "Prepare Same Episode Duplicate Finder for publishing"
 git branch -M main
 git remote add origin https://github.com/<owner>/<repo>.git
 git push -u origin main
+```
+
+## Release Candidate Package
+
+For a portable Windows release, build the app and zip only the release executable plus public docs. Do not include local caches, logs, CSV reports, provider settings, or title databases from `dist`.
+
+Suggested package name:
+
+```text
+Duplikates-v0.0.4-win.zip
 ```
